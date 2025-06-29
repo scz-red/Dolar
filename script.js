@@ -1,95 +1,98 @@
-const dateElement = document.getElementById("date");
-const currencyList = document.getElementById("currencyList");
+const apiUrl = "https://scz-red-api.onrender.com/usdt-rate";
 
-// Formato de fecha estilo iOS
-const now = new Date();
-const formatter = new Intl.DateTimeFormat("es-BO", {
-  dateStyle: "short",
-  timeStyle: "short",
-});
-dateElement.textContent = formatter.format(now);
+const currencies = [
+  { code: "BOB", name: "Boliviano", flag: "🇧🇴" },
+  { code: "USD", name: "US Dollar", flag: "🇺🇸" },
+  { code: "ETH", name: "Ethereum", flag: "🟣" },
+  { code: "BTC", name: "Bitcoin", flag: "🟠" },
+  { code: "COP", name: "Colombian Peso", flag: "🇨🇴" },
+];
 
-let currencies = [];
+let exchangeRate = 1; // tasa BOB → USD (por ahora)
 
-async function fetchCurrencies() {
-  try {
-    const response = await fetch("https://scz-red-api.onrender.com/usdt-rate");
-    const data = await response.json();
+let inputValue = "";
 
-    currencies = data.map(item => ({
-      code: item.code,
-      name: item.name,
-      flag: item.flag || "🌐",
-      value: parseFloat(item.rate)
-    }));
+const dateEl = document.getElementById("date");
+const currencyListEl = document.getElementById("currencyList");
 
-    renderCurrencies();
-  } catch (error) {
-    console.error("Error al obtener las monedas:", error);
-  }
+// Mostrar fecha/hora actual
+function updateDate() {
+  const now = new Date();
+  dateEl.textContent = now.toLocaleString();
 }
 
+// Mostrar monedas y valores
 function renderCurrencies() {
-  currencyList.innerHTML = "";
-  currencies.forEach(({ code, flag, value }) => {
-    const item = document.createElement("div");
-    item.className = "currency-item";
-    item.innerHTML = `
-      <div class="currency-flag">
-        <span>${flag}</span>
-        <span>${code}</span>
-      </div>
-      <div class="currency-value">${value.toLocaleString()}</div>
+  currencyListEl.innerHTML = "";
+  currencies.forEach(({ code, name, flag }) => {
+    const val = convert(inputValue || 0, code);
+    const div = document.createElement("div");
+    div.classList.add("currency-item");
+    div.innerHTML = `
+      <div class="currency-flag"><span>${flag}</span><span>${code}</span></div>
+      <div class="currency-value">${val}</div>
     `;
-    currencyList.appendChild(item);
+    currencyListEl.appendChild(div);
   });
 }
 
-let currentInput = "";
+// Convertir BOB a otra moneda usando tasa actual
+function convert(amount, currency) {
+  if (!amount || isNaN(amount)) return "0";
+  const num = Number(amount);
+  if (currency === "BOB") return num.toFixed(2);
+  if (currency === "USD") return (num / exchangeRate).toFixed(4);
+  // Simulaciones para criptos y otras monedas:
+  if (currency === "ETH") return (num / 10000).toFixed(6);
+  if (currency === "BTC") return (num / 200000).toFixed(8);
+  if (currency === "COP") return (num * 7.3).toFixed(2);
+  return num.toFixed(2);
+}
 
+// Recoger número del teclado
 function inputNumber(num) {
-  if (currentInput.length < 15) {
-    currentInput += num;
-    updateMainValue();
-  }
-}
-
-function inputOperator(op) {
-  if (currentInput && !isNaN(currentInput.slice(-1))) {
-    currentInput += op;
-  }
-}
-
-function clearInput() {
-  currentInput = "";
-  updateMainValue();
-}
-
-function deleteLast() {
-  currentInput = currentInput.slice(0, -1);
-  updateMainValue();
-}
-
-function calculate() {
-  try {
-    const result = eval(currentInput);
-    currentInput = result.toString();
-    updateMainValue();
-  } catch {
-    currentInput = "Error";
-    updateMainValue();
-  }
-}
-
-function updateMainValue() {
-  if (!currencies.length) return;
-  const value = parseFloat(currentInput) || 0;
-  currencies[0].value = value;
-
-  currencies.forEach((c, i) => {
-    if (i !== 0) c.value = value * (c.value / currencies[0].value);
-  });
+  if (num === "." && inputValue.includes(".")) return;
+  inputValue += num;
   renderCurrencies();
 }
 
-fetchCurrencies();
+// Borrar input
+function clearInput() {
+  inputValue = "";
+  renderCurrencies();
+}
+
+// Borrar último dígito
+function deleteLast() {
+  inputValue = inputValue.slice(0, -1);
+  renderCurrencies();
+}
+
+function calculate() {
+  // Funcionalidad extra si quieres luego
+  // Por ahora solo actualizar conversion
+  renderCurrencies();
+}
+
+// Traer tipo de cambio real de API
+async function fetchExchangeRate() {
+  try {
+    const res = await fetch(apiUrl);
+    const data = await res.json();
+    exchangeRate = parseFloat(data.averageRate) || 6.9;
+    renderCurrencies();
+  } catch {
+    exchangeRate = 6.9; // fallback
+    renderCurrencies();
+  }
+}
+
+// Init
+function init() {
+  updateDate();
+  fetchExchangeRate();
+  setInterval(updateDate, 1000);
+  setInterval(fetchExchangeRate, 60 * 1000);
+}
+
+init();
