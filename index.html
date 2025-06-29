@@ -1,103 +1,10 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Converter Neo Bolivia</title>
-  <link rel="stylesheet" href="style.css">
-  <link href="https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@400;600&display=swap" rel="stylesheet">
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-      font-family: 'SF Pro Display', sans-serif;
-    }
-
-    body {
-      background-color: #000;
-      color: #fff;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: flex-start;
-      min-height: 100vh;
-      padding: 1rem;
-    }
-
-    header {
-      width: 100%;
-      text-align: center;
-      padding: 1rem 0;
-    }
-
-    h1 {
-      font-size: 1.5rem;
-      font-weight: 600;
-    }
-
-    #date {
-      color: #00ff88;
-      font-size: 0.85rem;
-    }
-
-    .currency-list {
-      width: 100%;
-      max-width: 400px;
-      margin-top: 1rem;
-    }
-
-    .currency-item {
-      background: #1c1c1e;
-      color: #fff;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0.8rem 1rem;
-      margin-bottom: 0.6rem;
-      border-radius: 12px;
-      font-size: 1rem;
-    }
-
-    .currency-flag {
-      display: flex;
-      align-items: center;
-      gap: 0.6rem;
-    }
-
-    .currency-value {
-      font-weight: bold;
-    }
-
-    .keyboard {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 0.6rem;
-      max-width: 400px;
-      margin-top: 1.5rem;
-    }
-
-    .keyboard button {
-      padding: 1.2rem 0;
-      font-size: 1.4rem;
-      border: none;
-      border-radius: 50px;
-      background-color: #333;
-      color: white;
-    }
-
-    .keyboard button:nth-child(4),
-    .keyboard button:nth-child(8),
-    .keyboard button:nth-child(12),
-    .keyboard button:last-child {
-      background-color: #f9a825;
-      color: black;
-    }
-
-    .keyboard .zero {
-      grid-column: span 2;
-    }
-  </style>
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div class="app">
@@ -106,34 +13,23 @@
       <p id="date"></p>
     </header>
 
-    <div class="currency-list" id="currencyList">
-      <!-- Las divisas se insertarán dinámicamente -->
-    </div>
+    <div class="currency-list" id="currencyList"></div>
 
     <div class="keyboard">
-      <button onclick="clearInput()">C</button>
-      <button onclick="deleteLast()">←</button>
-      <button onclick="inputOperator('%')">%</button>
-      <button onclick="inputOperator('/')">÷</button>
-
       <button onclick="inputNumber('7')">7</button>
       <button onclick="inputNumber('8')">8</button>
       <button onclick="inputNumber('9')">9</button>
-      <button onclick="inputOperator('*')">×</button>
-
+      <button onclick="clearInput()">C</button>
       <button onclick="inputNumber('4')">4</button>
       <button onclick="inputNumber('5')">5</button>
       <button onclick="inputNumber('6')">6</button>
-      <button onclick="inputOperator('-')">−</button>
-
+      <button onclick="deleteLast()">⇦</button>
       <button onclick="inputNumber('1')">1</button>
       <button onclick="inputNumber('2')">2</button>
       <button onclick="inputNumber('3')">3</button>
-      <button onclick="inputOperator('+')">+</button>
-
-      <button class="zero" onclick="inputNumber('0')">0</button>
-      <button onclick="inputNumber('.')">.</button>
       <button onclick="calculate()">=</button>
+      <button onclick="inputNumber('0')" class="zero">0</button>
+      <button onclick="inputNumber('.')">.</button>
     </div>
   </div>
 
