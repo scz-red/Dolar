@@ -3,38 +3,60 @@ import requests
 
 app = FastAPI()
 
-def obtener_promedio(tipo: str) -> float:
+HEADERS = {
+    "Content-Type": "application/json"
+}
+
+def obtener_promedio(direccion: str):
     url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
-    headers = {
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0"
-    }
-    payload = {
-        "asset": "USDT",
-        "fiat": "BOB",
-        "tradeType": tipo.upper(),
+    data = {
         "page": 1,
         "rows": 10,
         "payTypes": [],
-        "publisherType": None
+        "asset": "USDT",
+        "fiat": "BOB",
+        "tradeType": direccion.upper()
     }
-    res = requests.post(url, headers=headers, json=payload)
-    data = res.json()
-    precios = [float(ad["adv"]["price"]) for ad in data["data"]]
-    return sum(precios) / len(precios)
+
+    response = requests.post(url, headers=HEADERS, json=data)
+    anuncios = response.json().get("data", [])
+
+    precios_validos = []
+
+    for anuncio in anuncios:
+        adv = anuncio.get("adv", {})
+        advertiser = anuncio.get("advertiser", {})
+
+        precio = float(adv.get("price", 0))
+        min_limit = float(adv.get("minSingleTransAmount", 0))
+        condicion_btc = advertiser.get("userType") == "merchant" and "BTC" in adv.get("tradeMethods", [{}])[0].get("tradeMethodName", "")
+
+        if condicion_btc or min_limit > 1000:
+            continue
+
+        precios_validos.append(precio)
+
+        if len(precios_validos) == 5:
+            break
+
+    if not precios_validos:
+        return {"error": "No hay suficientes anuncios válidos."}
+
+    promedio = sum(precios_validos) / len(precios_validos)
+    return {
+        "direccion": direccion,
+        "promedio_bs": round(promedio, 2),
+        "anuncios_validos": len(precios_validos)
+    }
 
 @app.get("/")
-def raiz():
-    return {"mensaje": "API Dólar Paralelo Bolivia 🟦"}
+def root():
+    return {"mensaje": "API de dólar paralelo Bolivia - /compra o /venta"}
 
-@app.get("/dolar-paralelo")
-def dolar_paralelo():
-    compra = obtener_promedio("BUY")
-    venta = obtener_promedio("SELL")
-    promedio = round((compra + venta) / 2, 2)
-    return {
-        "compra": round(compra, 2),
-        "venta": round(venta, 2),
-        "promedio": promedio,
-        "fuente": "Binance P2P"
-    }
+@app.get("/compra")
+def dolar_compra():
+    return obtener_promedio("BUY")
+
+@app.get("/venta")
+def dolar_venta():
+    return obtener_promedio("SELL")
