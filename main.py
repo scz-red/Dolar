@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 import requests
+from datetime import datetime
 
 app = FastAPI()
 
@@ -29,9 +30,11 @@ def obtener_promedio(direccion: str):
 
         precio = float(adv.get("price", 0))
         min_limit = float(adv.get("minSingleTransAmount", 0))
-        condicion_btc = advertiser.get("userType") == "merchant" and "BTC" in adv.get("tradeMethods", [{}])[0].get("tradeMethodName", "")
 
-        if condicion_btc or min_limit > 1000:
+        # Detectar condiciones poco accesibles (por ejemplo, montos muy altos o anuncios con restricciones de BTC)
+        condiciones_restrictivas = min_limit > 1000 or "BTC" in str(adv).upper()
+
+        if condiciones_restrictivas:
             continue
 
         precios_validos.append(precio)
@@ -44,14 +47,15 @@ def obtener_promedio(direccion: str):
 
     promedio = sum(precios_validos) / len(precios_validos)
     return {
-        "direccion": direccion,
+        "direccion": direccion.lower(),
         "promedio_bs": round(promedio, 2),
-        "anuncios_validos": len(precios_validos)
+        "anuncios_validos": len(precios_validos),
+        "timestamp": datetime.now().isoformat()
     }
 
 @app.get("/")
 def root():
-    return {"mensaje": "API de dólar paralelo Bolivia - /compra o /venta"}
+    return {"mensaje": "API de dólar paralelo Bolivia - /compra | /venta | /dolar-paralelo"}
 
 @app.get("/compra")
 def dolar_compra():
@@ -60,3 +64,16 @@ def dolar_compra():
 @app.get("/venta")
 def dolar_venta():
     return obtener_promedio("SELL")
+
+@app.get("/dolar-paralelo")
+def dolar_paralelo():
+    compra = obtener_promedio("BUY")
+    venta = obtener_promedio("SELL")
+    return {
+        "fuente": "Binance P2P",
+        "timestamp": datetime.now().isoformat(),
+        "compra_bs": compra.get("promedio_bs"),
+        "venta_bs": venta.get("promedio_bs"),
+        "anuncios_compra": compra.get("anuncios_validos"),
+        "anuncios_venta": venta.get("anuncios_validos")
+    }
