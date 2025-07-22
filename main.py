@@ -1,11 +1,9 @@
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
 import requests
-from datetime import datetime
 
 app = FastAPI()
 
-def obtener_promedio(trade_type):
+def obtener_promedio(tipo: str) -> float:
     url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
     headers = {
         "Content-Type": "application/json",
@@ -14,33 +12,29 @@ def obtener_promedio(trade_type):
     payload = {
         "asset": "USDT",
         "fiat": "BOB",
-        "tradeType": trade_type,
+        "tradeType": tipo.upper(),
         "page": 1,
         "rows": 10,
         "payTypes": [],
         "publisherType": None
     }
+    res = requests.post(url, headers=headers, json=payload)
+    data = res.json()
+    precios = [float(ad["adv"]["price"]) for ad in data["data"]]
+    return sum(precios) / len(precios)
 
-    response = requests.post(url, headers=headers, json=payload)
-    data = response.json()
-    precios = [float(oferta["adv"]["price"]) for oferta in data["data"]]
-    promedio = sum(precios) / len(precios)
-    return round(promedio, 2)
+@app.get("/")
+def raiz():
+    return {"mensaje": "API Dólar Paralelo Bolivia 🟦"}
 
 @app.get("/dolar-paralelo")
 def dolar_paralelo():
-    try:
-        promedio_venta = obtener_promedio("SELL")  # Gente que vende USDT
-        promedio_compra = obtener_promedio("BUY")  # Gente que compra USDT
-        ahora = datetime.now().isoformat()
-
-        return JSONResponse({
-            "fuente": "Binance P2P",
-            "moneda": "USDT",
-            "fiat": "BOB",
-            "promedio_venta": promedio_venta,
-            "promedio_compra": promedio_compra,
-            "hora_actualizacion": ahora
-        })
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+    compra = obtener_promedio("BUY")
+    venta = obtener_promedio("SELL")
+    promedio = round((compra + venta) / 2, 2)
+    return {
+        "compra": round(compra, 2),
+        "venta": round(venta, 2),
+        "promedio": promedio,
+        "fuente": "Binance P2P"
+    }
