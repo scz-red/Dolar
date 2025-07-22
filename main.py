@@ -12,33 +12,40 @@ def obtener_promedio(direccion: str):
     url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
     data = {
         "page": 1,
-        "rows": 10,
+        "rows": 20,  # Aumentamos para tener más opciones y evitar filtros estrictos
         "payTypes": [],
         "asset": "USDT",
         "fiat": "BOB",
         "tradeType": direccion.upper()
     }
 
-    response = requests.post(url, headers=HEADERS, json=data)
-    anuncios = response.json().get("data", [])
+    try:
+        response = requests.post(url, headers=HEADERS, json=data)
+        response.raise_for_status()
+    except Exception as e:
+        return {"error": "Error al conectar con Binance", "detalle": str(e)}
 
+    anuncios = response.json().get("data", [])
     precios_validos = []
 
     for anuncio in anuncios:
         adv = anuncio.get("adv", {})
         advertiser = anuncio.get("advertiser", {})
 
-        precio = float(adv.get("price", 0))
-        min_limit = float(adv.get("minSingleTransAmount", 0))
-
-        # Detectar condiciones poco accesibles (por ejemplo, montos muy altos o anuncios con restricciones de BTC)
-        condiciones_restrictivas = min_limit > 1000 or "BTC" in str(adv).upper()
-
-        if condiciones_restrictivas:
+        try:
+            precio = float(adv.get("price", 0))
+            min_limit = float(adv.get("minSingleTransAmount", 0))
+        except (ValueError, TypeError):
             continue
 
+        # 🛡️ Filtro: solo límites razonables
+        if not (10 <= min_limit <= 10000):
+            continue
+
+        # ✅ Pasó los filtros
         precios_validos.append(precio)
 
+        # Tomamos solo los primeros 5 válidos
         if len(precios_validos) == 5:
             break
 
