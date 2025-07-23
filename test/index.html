@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Currency Calculator iPhone Style</title>
+  <link href="https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@400;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <style>
+    body { background: #232323; font-family: 'SF Pro Display', Arial, sans-serif; }
+    .noselect { user-select: none; }
+  </style>
+</head>
+<body class="noselect">
+  <div id="root"></div>
+  <script type="text/javascript">
+    const { useState, useEffect } = React;
+
+    // Agrega aquí las monedas que quieras mostrar
+    const currencies = [
+      { code: "BOB", name: "Boliviano", flag: "https://flagcdn.com/bo.svg" },
+      { code: "USD", name: "Dólar estadounidense", flag: "https://flagcdn.com/us.svg" },
+      { code: "EUR", name: "Euro", flag: "https://flagcdn.com/eu.svg" },
+      { code: "GBP", name: "Libra Esterlina", flag: "https://flagcdn.com/gb.svg" },
+      { code: "ARS", name: "Peso Argentino", flag: "https://flagcdn.com/ar.svg" },
+      { code: "CLP", name: "Peso Chileno", flag: "https://flagcdn.com/cl.svg" },
+      { code: "BRL", name: "Real Brasileño", flag: "https://flagcdn.com/br.svg" },
+      { code: "PEN", name: "Sol Peruano", flag: "https://flagcdn.com/pe.svg" },
+      { code: "CNY", name: "Yuan Chino", flag: "https://flagcdn.com/cn.svg" },
+      { code: "COP", name: "Peso Colombiano", flag: "https://flagcdn.com/co.svg" }
+    ];
+
+    const numPad = [
+      ["7", "8", "9", "/"],
+      ["4", "5", "6", "x"],
+      ["1", "2", "3", "-"],
+      ["C", "0", ".", "+"],
+    ];
+
+    function CurrencyCalculatorApp() {
+      const [input, setInput] = useState("1");
+      const [usdToBob, setUsdToBob] = useState(16.02); // Valor inicial de emergencia (actualiza según tu API)
+      const [usdRates, setUsdRates] = useState({});
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState("");
+
+      // Al iniciar, pedir todas las tasas necesarias
+      useEffect(() => {
+        setLoading(true);
+        // 1. Traer USD/BOB paralelo
+        fetch("https://dolar-api-bolivia.onrender.com/dolar-paralelo")
+          .then(res => res.json())
+          .then(data => {
+            if (data && data.compra_bs) setUsdToBob(parseFloat(data.compra_bs));
+          })
+          .catch(() => setError("No se pudo conectar a tu API de dólar paralelo."));
+        // 2. Traer 1 moneda = ? USD para cada moneda (incluido USD)
+        fetch("https://api.exchangerate.host/latest?base=USD&symbols=USD,EUR,GBP,ARS,CLP,BRL,PEN,CNY,COP")
+          .then(res => res.json())
+          .then(data => {
+            if (data && data.rates) {
+              let rates = {};
+              Object.entries(data.rates).forEach(([k, v]) => {
+                rates[k] = v;
+              });
+              rates.USD = 1; // USD a USD siempre es 1
+              setUsdRates(rates);
+            }
+          })
+          .catch(() => setError("No se pudo conectar a exchangerate.host."));
+        setLoading(false);
+      }, []);
+
+      const handlePress = (val) => {
+        if (val === "C") { setInput(""); return; }
+        if (["+", "-", "x", "/"].includes(val)) {
+          if (!input || /[+\-x\/]$/.test(input)) return;
+          setInput((inp) => inp + val); return;
+        }
+        if (val === ".") {
+          setInput((inp) =>
+            inp.split(/[+\-x\/]/).pop().includes(".") ? inp : inp + "."
+          );
+          return;
+        }
+        setInput((inp) => (inp === "0" ? val : inp + val));
+      };
+
+      // Lógica clave: CUALQUIER MONEDA → USD → BOB
+      function getResults() {
+        let bob = 0;
+        try {
+          let evalStr = input.replace(/x/g, "*").replace(/\//g, "/");
+          bob = eval(evalStr) || 0;
+        } catch { bob = 0; }
+
+        // 1. Lo ingresado es BOLIVIANOS. Calculamos primero cuántos USD es eso, usando el dólar paralelo.
+        let usd = bob / usdToBob;
+
+        // 2. De USD a cada moneda (al revés para mostrar equivalencia de la web)
+        // Por cada moneda: cuántos X (EUR, GBP, etc) equivale a ese USD
+        let results = {};
+        results.BOB = bob.toLocaleString(undefined, {maximumFractionDigits: 2});
+        results.USD = usd.toLocaleString(undefined, {maximumFractionDigits: 2});
+
+        for (const c of currencies) {
+          if (c.code === "BOB" || c.code === "USD") continue;
+          // USD → moneda:  (usd * (1 / usdRates[c.code]))
+          let val = usd * usdRates[c.code];
+          results[c.code] = val.toLocaleString(undefined, {maximumFractionDigits: 4});
+        }
+        return results;
+      }
+
+      const result = getResults();
+
+      return (
+        React.createElement("div", {className:"bg-[#232323] min-h-screen w-screen flex items-center justify-center overflow-hidden"},
+          React.createElement("div", {className:"max-w-[430px] w-full mx-auto min-h-screen flex flex-col", style:{boxShadow:'0 0 30px #0008', borderRadius:'32px'}},
+            // Barra superior
+            React.createElement("div", {className:"flex items-center gap-2 pt-3 px-4 text-white/60"},
+              React.createElement("span", {className:"material-symbols-outlined text-2xl"}, "star"),
+              React.createElement("span", {className:"ml-2 font-semibold text-lg"}, "Basic"),
+              React.createElement("span", {className:"ml-5 font-semibold text-lg"}, "Scientific"),
+              React.createElement("span", {className:"ml-5 font-semibold text-lg text-[#F6B13A] bg-black/40 px-3 py-1 rounded-2xl"}, "Currency"),
+              React.createElement("span", {className:"ml-auto material-symbols-outlined text-2xl"}, "settings")
+            ),
+            error && React.createElement("div", {className:"text-red-400 text-center my-2"}, error),
+            loading && React.createElement("div", {className:"text-gray-400 text-center my-2"}, "Cargando tasas..."),
+            // Monedas
+            React.createElement("div", {className:"flex-1 flex flex-col justify-end pb-2 px-2 md:px-8"},
+              currencies.map((c) =>
+                React.createElement("div", {key:c.code, className:"flex items-center bg-[#303030] rounded-2xl mb-3 p-3 min-h-[70px] shadow-inner border border-[#222]"},
+                  React.createElement("img", {src:c.flag, className:"w-12 h-8 rounded shadow border border-neutral-700 mr-3"}),
+                  React.createElement("div", {className:"flex-1 flex flex-col"},
+                    React.createElement("span", {className:"text-[2rem] text-white/80 font-[SF Pro Display] tracking-widest"}, c.code),
+                    React.createElement("span", {className:"text-neutral-400 text-[15px] font-normal -mt-2"}, c.name)
+                  ),
+                  React.createElement("div", {className:"flex flex-col items-end"},
+                    React.createElement("span", {className:"text-white text-[2rem] font-bold font-mono"}, result[c.code] || "0")
+                  )
+                )
+              )
+            ),
+            // Teclado
+            React.createElement("div", {className:"pb-4 px-1 md:px-6"},
+              React.createElement("div", {className:"grid grid-cols-4 gap-3"},
+                numPad.flat().map((n, i) =>
+                  React.createElement("button", {
+                    key:i,
+                    className: `rounded-[1.3rem] h-16 md:h-20 text-3xl font-bold shadow-sm transition active:bg-[#383838] active:scale-95 ${
+                      n === "+" || n === "-" || n === "x" || n === "/"
+                        ? "bg-[#FF9200] text-white"
+                        : n === "C"
+                        ? "bg-[#383838] text-[#FF9200]"
+                        : "bg-[#292929] text-white"
+                    }`,
+                    onClick:()=>handlePress(n)
+                  }, n)
+                )
+              )
+            )
+          )
+        )
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(CurrencyCalculatorApp));
+  </script>
+  <!-- Icons (for topbar) -->
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
+</body>
+</html>
