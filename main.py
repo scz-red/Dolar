@@ -5,13 +5,9 @@ from datetime import datetime
 
 app = FastAPI()
 
-# Configuración CORS para permitir peticiones desde frontend
 origins = [
-    "http://localhost",
-    "http://localhost:8000",
-    "http://127.0.0.1:5500",
-    "https://tu-dominio.com",  # Cambia aquí por tu dominio real
-    "*",  # Para desarrollo, permite todos los orígenes (ajustar en producción)
+    "https://api.lupo.lat",
+    "https://www.lupo.lat"
 ]
 
 app.add_middleware(
