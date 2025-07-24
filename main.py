@@ -11,13 +11,44 @@ CRYPTO_MAP = {
     "USDC": "usd-coin",
     "DOGE": "dogecoin",
     "SOL": "solana",
-    "PEPE": "pepe",
+    "PEPE": "pepecoin",
     "TRUMP": "trumpcoin"
 }
 
 def obtener_promedio(direccion: str):
-    # Tu función para obtener el promedio del dólar paralelo
-    pass
+    url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
+    headers = {"Content-Type": "application/json"}
+    data = {
+        "page": 1,
+        "rows": 10,
+        "payTypes": [],
+        "asset": "USDT",
+        "fiat": "BOB",
+        "tradeType": direccion.upper()
+    }
+    try:
+        response = requests.post(url, headers=headers, json=data, timeout=10)
+        response.raise_for_status()
+        anuncios = response.json().get("data", [])
+    except Exception as e:
+        return {"error": f"Error al consultar Binance: {e}"}
+
+    precios_validos = []
+    for anuncio in anuncios:
+        adv = anuncio.get("adv", {})
+        # Filtrar anuncios con monto mínimo muy alto
+        if adv.get("minSingleTransAmount") and float(adv["minSingleTransAmount"]) > 2000:
+            continue
+        precio = float(adv.get("price", 0))
+        precios_validos.append(precio)
+        if len(precios_validos) == 5:
+            break
+
+    if not precios_validos:
+        return {"error": "No hay suficientes anuncios válidos."}
+
+    promedio = sum(precios_validos) / len(precios_validos)
+    return {"promedio_bs": round(promedio, 2)}
 
 def obtener_tasa(base: str, destino: str):
     try:
@@ -29,6 +60,31 @@ def obtener_tasa(base: str, destino: str):
     except Exception as e:
         print(f"Error API open.er-api.com: {e}")
         return None
+
+@app.get("/")
+def root():
+    return {"mensaje": "API de dólar paralelo Bolivia - /compra | /venta | /dolar-paralelo | /convertir_bob"}
+
+@app.get("/compra")
+def dolar_compra():
+    return obtener_promedio("BUY")
+
+@app.get("/venta")
+def dolar_venta():
+    return obtener_promedio("SELL")
+
+@app.get("/dolar-paralelo")
+def dolar_paralelo():
+    compra = obtener_promedio("BUY")
+    venta = obtener_promedio("SELL")
+    return {
+        "fuente": "Binance P2P",
+        "timestamp": datetime.now().isoformat(),
+        "compra_bs": compra.get("promedio_bs"),
+        "venta_bs": venta.get("promedio_bs"),
+        "anuncios_compra": len(compra.get("promedio_bs", [])),
+        "anuncios_venta": len(venta.get("promedio_bs", []))
+    }
 
 @app.get("/convertir_bob")
 def convertir_bob(
@@ -68,7 +124,7 @@ def convertir_bob(
         r = requests.get(url, timeout=10)
         r.raise_for_status()
         precios_criptos = r.json()
-    except Exception as e:
+    except Exception:
         precios_criptos = {}
 
     conversiones_cripto = {}
