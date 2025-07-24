@@ -66,32 +66,36 @@ def obtener_tasa(base: str, destino: str):
         print(f"Error API open.er-api.com: {e}")
         return None
 
-# Mapeo símbolo cripto a id CoinGecko
-CRYPTO_IDS = {
-    "BTC": "bitcoin",
-    "ETH": "ethereum",
-    "USDT": "tether",
-    "USDC": "usd-coin",
-    "DAI": "dai"
-}
+def obtener_id_cripto(simbolo):
+    url = "https://api.coingecko.com/api/v3/coins/list"
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        coins = response.json()
+        for coin in coins:
+            if coin['symbol'].lower() == simbolo.lower():
+                return coin['id']
+    except Exception as e:
+        print(f"Error obtener_id_cripto: {e}")
+    return None
 
-def obtener_precio_coingecko(cripto: str):
-    cripto_id = CRYPTO_IDS.get(cripto.upper())
+def obtener_precio_coingecko(cripto_simbolo):
+    cripto_id = obtener_id_cripto(cripto_simbolo)
     if not cripto_id:
         return None
+    url = f"https://api.coingecko.com/api/v3/simple/price?ids={cripto_id}&vs_currencies=usd"
     try:
-        url = f"https://api.coingecko.com/api/v3/simple/price?ids={cripto_id}&vs_currencies=usd"
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-        return data.get(cripto_id, {}).get("usd")
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        return data.get(cripto_id, {}).get('usd')
     except Exception as e:
-        print(f"Error CoinGecko: {e}")
+        print(f"Error obtener_precio_coingecko: {e}")
         return None
 
 @app.get("/")
 def root():
-    return {"mensaje": "API dólar paralelo Bolivia - /compra | /venta | /dolar-paralelo | /convertir_bob | /precio_cripto"}
+    return {"mensaje": "API de dólar paralelo Bolivia - /compra | /venta | /dolar-paralelo | /convertir_bob | /precio_cripto"}
 
 @app.get("/compra")
 def dolar_compra():
