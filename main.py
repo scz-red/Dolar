@@ -5,17 +5,10 @@ from datetime import datetime
 
 app = FastAPI()
 
-origins = [
-    "https://lupo.lat",
-    "https://www.lupo.lat",
-    "https://api.lupo.lat",
-    "http://localhost:8000",
-    "http://127.0.0.1:5500"
-]
-
+# CORS público, compatible con cualquier frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],  # Permite todos los orígenes (API pública)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -217,9 +210,4 @@ def cambio_bolivianos():
         if tasa:
             cotizaciones[cod] = round(tc_usd_bob * tasa, 2)
         else:
-            cotizaciones[cod] = "No disponible"
-    return {
-        "bolivianos_por_unidad": cotizaciones,
-        "fuente": "Binance P2P + Open Exchange Rates",
-        "timestamp": datetime.now().isoformat()
-    }
+            cot
