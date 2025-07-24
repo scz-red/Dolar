@@ -147,7 +147,7 @@ def convertir_bob(monto_bob: float = Query(1000, description="Monto en boliviano
         "timestamp": datetime.now().isoformat()
     }
 
-# --------- NUEVOS ENDPOINTS ABAJO ---------
+# --------- NUEVOS ENDPOINTS ABAJO (todos con BUY) ---------
 
 @app.get("/convertir_bob_moneda")
 def convertir_bob_moneda(moneda: str = Query(...), monto_bob: float = Query(1000)):
@@ -174,7 +174,7 @@ def convertir_bob_moneda(moneda: str = Query(...), monto_bob: float = Query(1000
 @app.get("/cambio_a_bob")
 def cambio_a_bob(moneda: str = Query(...), monto: float = Query(1)):
     moneda = moneda.upper()
-    resultado_promedio = obtener_promedio("SELL")
+    resultado_promedio = obtener_promedio("BUY")
     if "error" in resultado_promedio:
         return {"error": resultado_promedio["error"]}
     tc_usd_bob = resultado_promedio.get("promedio_bs")
@@ -206,7 +206,7 @@ def cambio_bolivianos():
         "USD", "EUR", "COP", "ARS", "CLP",
         "BRL", "PEN", "CNY", "PYG", "MXN"
     ]
-    resultado_promedio = obtener_promedio("SELL")
+    resultado_promedio = obtener_promedio("BUY")
     if "error" in resultado_promedio:
         return {"error": resultado_promedio["error"]}
     tc_usd_bob = resultado_promedio.get("promedio_bs")
