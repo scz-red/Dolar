@@ -8,7 +8,6 @@ HEADERS = {
     "Content-Type": "application/json"
 }
 
-# Función para obtener promedio en Binance P2P
 def obtener_promedio(direccion: str):
     url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
     data = {
@@ -56,7 +55,6 @@ def obtener_promedio(direccion: str):
         "timestamp": datetime.now().isoformat()
     }
 
-# Función para obtener tasas de divisas (USD a otra moneda)
 def obtener_tasa(base: str, destino: str):
     try:
         url = f"https://open.er-api.com/v6/latest/{base}"
@@ -68,29 +66,29 @@ def obtener_tasa(base: str, destino: str):
         print(f"Error API open.er-api.com: {e}")
         return None
 
-# Función para obtener precio de criptomonedas con CoinGecko
-def obtener_precio_coingecko(cripto_id: str):
-    try:
-        url = f"https://api.coingecko.com/api/v3/simple/price?ids={cripto_id}&vs_currencies=usd"
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-        return data.get(cripto_id, {}).get('usd')
-    except Exception as e:
-        print(f"Error CoinGecko: {e}")
-        return None
-
-# Mapeo para criptos: símbolo a id CoinGecko
+# Mapeo para CoinGecko
 CRYPTO_MAP = {
     "USDT": "tether",
     "BTC": "bitcoin",
     "ETH": "ethereum",
     "USDC": "usd-coin",
     "DOGE": "dogecoin",
-    "SOL": "solana",
-    "PEPE": "pepe",
-    "TRUMP": "trumpcoin"
+    "SOL": "solana"
 }
+
+def obtener_precio_crypto(cripto: str):
+    cripto_id = CRYPTO_MAP.get(cripto.upper())
+    if not cripto_id:
+        return None
+    try:
+        url = f"https://api.coingecko.com/api/v3/simple/price?ids={cripto_id}&vs_currencies=usd"
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        return float(data[cripto_id]['usd'])
+    except Exception as e:
+        print(f"Error CoinGecko: {e}")
+        return None
 
 @app.get("/")
 def root():
@@ -149,31 +147,19 @@ def convertir_bob(
         else:
             conversiones_fiat[nombre] = "No disponible"
 
-    criptos = {
-        "USDT": "Tether (USDT)",
-        "BTC": "Bitcoin (BTC)",
-        "ETH": "Ethereum (ETH)",
-        "USDC": "USD Coin (USDC)",
-        "DOGE": "Dogecoin (DOGE)",
-        "SOL": "Solana (SOL)",
-        "PEPE": "Pepe (PEPE)",
-        "TRUMP": "Trump (TRUMP)"
-    }
+    criptos = CRYPTO_MAP.keys()
     conversiones_cripto = {}
 
-    for simbolo, nombre in criptos.items():
-        id_coingecko = CRYPTO_MAP.get(simbolo)
-        if simbolo == "USDT":
-            conversiones_cripto[nombre] = round(usd, 2)
-        elif id_coingecko:
-            precio = obtener_precio_coingecko(id_coingecko)
+    for cripto in criptos:
+        if cripto == "USDT":
+            conversiones_cripto["Tether (USDT)"] = round(usd, 2)
+        else:
+            precio = obtener_precio_crypto(cripto)
             if precio:
                 valor = usd / precio
-                conversiones_cripto[nombre] = round(valor, 6)
+                conversiones_cripto[cripto] = round(valor, 6)
             else:
-                conversiones_cripto[nombre] = "No disponible"
-        else:
-            conversiones_cripto[nombre] = "No disponible"
+                conversiones_cripto[cripto] = "No disponible"
 
     return {
         "monto_bob": monto_bob,
@@ -188,10 +174,7 @@ def convertir_bob(
 def precio_cripto(
     cripto: str = Query(..., description="Símbolo de la criptomoneda, por ejemplo BTC, ETH")
 ):
-    id_coingecko = CRYPTO_MAP.get(cripto.upper())
-    if not id_coingecko:
-        return {"error": f"No hay datos para la criptomoneda {cripto}"}
-    precio = obtener_precio_coingecko(id_coingecko)
+    precio = obtener_precio_crypto(cripto)
     if precio is None:
         return {"error": f"No se pudo obtener el precio para {cripto}"}
     return {
