@@ -8,6 +8,24 @@ HEADERS = {
     "Content-Type": "application/json"
 }
 
+# Cache global para IDs de criptos (símbolo -> id)
+CACHE_COINS = {}
+
+def cargar_cache_coins():
+    global CACHE_COINS
+    try:
+        url = "https://api.coingecko.com/api/v3/coins/list"
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        coins = r.json()
+        CACHE_COINS = {coin['symbol'].lower(): coin['id'] for coin in coins}
+        print(f"Cargados {len(CACHE_COINS)} símbolos de cripto en cache")
+    except Exception as e:
+        print(f"Error cargando cache de monedas: {e}")
+
+# Carga al iniciar la app
+cargar_cache_coins()
+
 def obtener_promedio(direccion: str):
     url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
     data = {
@@ -66,28 +84,15 @@ def obtener_tasa(base: str, destino: str):
         print(f"Error API open.er-api.com: {e}")
         return None
 
-def obtener_id_cripto(simbolo):
-    url = "https://api.coingecko.com/api/v3/coins/list"
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        coins = response.json()
-        for coin in coins:
-            if coin['symbol'].lower() == simbolo.lower():
-                return coin['id']
-    except Exception as e:
-        print(f"Error obtener_id_cripto: {e}")
-    return None
-
 def obtener_precio_coingecko(cripto_simbolo):
-    cripto_id = obtener_id_cripto(cripto_simbolo)
+    cripto_id = CACHE_COINS.get(cripto_simbolo.lower())
     if not cripto_id:
         return None
-    url = f"https://api.coingecko.com/api/v3/simple/price?ids={cripto_id}&vs_currencies=usd"
     try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
+        url = f"https://api.coingecko.com/api/v3/simple/price?ids={cripto_id}&vs_currencies=usd"
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        data = r.json()
         return data.get(cripto_id, {}).get('usd')
     except Exception as e:
         print(f"Error obtener_precio_coingecko: {e}")
@@ -95,7 +100,7 @@ def obtener_precio_coingecko(cripto_simbolo):
 
 @app.get("/")
 def root():
-    return {"mensaje": "API de dólar paralelo Bolivia - /compra | /venta | /dolar-paralelo | /convertir_bob | /precio_cripto"}
+    return {"mensaje": "API dólar paralelo Bolivia - /compra | /venta | /dolar-paralelo | /convertir_bob | /precio_cripto"}
 
 @app.get("/compra")
 def dolar_compra():
