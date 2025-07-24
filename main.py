@@ -30,23 +30,12 @@ def obtener_promedio(direccion: str):
         }
 
     precios_validos = []
-
     for anuncio in anuncios:
         adv = anuncio.get("adv", {})
-        conditions = adv.get("tradeMethods", [])
-        precio = float(adv.get("price", 0))
-
-        restricciones = any(
-            (
-                (method.get("tradeMethodName") and "BTC" in method.get("tradeMethodName").upper())
-                or
-                (method.get("identifier") and "BTC" in method.get("identifier").upper())
-            )
-            for method in conditions
-        )
-        if restricciones:
+        restricciones = adv.get("minSingleTransAmount", 0)
+        if restricciones and float(restricciones) > 2000:
             continue
-
+        precio = float(adv.get("price", 0))
         precios_validos.append(precio)
         if len(precios_validos) == 5:
             break
@@ -77,9 +66,9 @@ def obtener_tasa(base: str, destino: str):
         print(f"Error API open.er-api.com: {e}")
         return None
 
-def obtener_precio_usdt(cripto):
+def obtener_precio_usdt(cripto: str):
     try:
-        url = f"https://api.binance.com/api/v3/ticker/price?symbol={cripto}USDT"
+        url = f"https://api.binance.com/api/v3/ticker/price?symbol={cripto.upper()}USDT"
         r = requests.get(url, timeout=10)
         r.raise_for_status()
         data = r.json()
@@ -90,7 +79,7 @@ def obtener_precio_usdt(cripto):
 
 @app.get("/")
 def root():
-    return {"mensaje": "API de dólar paralelo Bolivia - /compra | /venta | /dolar-paralelo | /convertir_bob"}
+    return {"mensaje": "API de dólar paralelo Bolivia - /compra | /venta | /dolar-paralelo | /convertir_bob | /precio_cripto"}
 
 @app.get("/compra")
 def dolar_compra():
@@ -171,5 +160,18 @@ def convertir_bob(
         "monto_usd": round(usd, 2),
         "conversiones_fiat": conversiones_fiat,
         "conversiones_cripto": conversiones_cripto,
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.get("/precio_cripto")
+def precio_cripto(
+    cripto: str = Query(..., description="Símbolo de la criptomoneda, por ejemplo BTC, ETH")
+):
+    precio = obtener_precio_usdt(cripto)
+    if precio is None:
+        return {"error": f"No se pudo obtener el precio para {cripto}"}
+    return {
+        "criptomoneda": cripto.upper(),
+        "precio_usdt": round(precio, 6),
         "timestamp": datetime.now().isoformat()
     }
