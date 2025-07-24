@@ -36,7 +36,6 @@ def obtener_promedio(direccion: str):
         conditions = adv.get("tradeMethods", [])
         precio = float(adv.get("price", 0))
 
-        # Filtro PRO: solo toma anuncios SIN restricciones "BTC"
         restricciones = any(
             (
                 (method.get("tradeMethodName") and "BTC" in method.get("tradeMethodName").upper())
@@ -69,12 +68,13 @@ def obtener_promedio(direccion: str):
 
 def obtener_tasa(base: str, destino: str):
     try:
-        url = f"https://api.exchangerate.host/latest?base={base}&symbols={destino}"
+        url = f"https://exchangerate.host/latest?base={base}&symbols={destino}"
         r = requests.get(url, timeout=10)
         r.raise_for_status()
         data = r.json()
         return data['rates'][destino]
-    except Exception:
+    except Exception as e:
+        print(f"Error API exchangerate.host: {e}")
         return None
 
 def obtener_precio_usdt(cripto):
@@ -84,7 +84,8 @@ def obtener_precio_usdt(cripto):
         r.raise_for_status()
         data = r.json()
         return float(data['price'])
-    except Exception:
+    except Exception as e:
+        print(f"Error Binance: {e}")
         return None
 
 @app.get("/")
@@ -159,7 +160,7 @@ def convertir_bob(
         else:
             precio = obtener_precio_usdt(cripto)
             if precio:
-                valor = usd / precio  # Cuántos BTC/ETH... equivalen a ese USD
+                valor = usd / precio
                 conversiones_cripto[nombre] = round(valor, 6)
             else:
                 conversiones_cripto[nombre] = "No disponible"
