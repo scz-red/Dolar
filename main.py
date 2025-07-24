@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 
 app = FastAPI()
 
-# CORS - Ajústalo para producción
+# CORS - Puedes restringir esto en producción
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -14,17 +14,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-CRYPTO_MAP = {
-    "USDT": "tether",
-    "BTC": "bitcoin",
-    "ETH": "ethereum",
-    "USDC": "usd-coin",
-    "DOGE": "dogecoin",
-    "SOL": "solana",
-    "PEPE": "pepe",
-    "TRUMP": "trumpcoin"
-}
-
+# Monedas soportadas
 MONEDAS_FIAT = {
     "USD": "Dólar estadounidense",
     "EUR": "Euro",
@@ -109,191 +99,31 @@ def obtener_tasa(base: str, destino: str):
         if tasa:
             set_cache(cache_key, tasa)
         return tasa
-    except Exception as e:
+    except Exception:
         return None
 
-# ---- CRYPTO PRICES (cache) ----
-def obtener_precios_cripto():
-    cache_key = "cripto_usd"
-    cached = get_cache(cache_key)
-    if cached:
-        return cached
-    cripto_ids = ",".join(CRYPTO_MAP.values())
-    try:
-        url = f"https://api.coingecko.com/api/v3/simple/price?ids={cripto_ids}&vs_currencies=usd"
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
-        precios = r.json()
-        set_cache(cache_key, precios)
-        return precios
-    except Exception:
-        return {}
+# ------ ENDPOINTS PRINCIPALES ------
 
-# ----- ENDPOINTS -----
-
-# BOB a todo (fiat + cripto)
-@app.get("/convertir_bob")
-def convertir_bob(monto_bob: float = Query(1000)):
-    resultado = obtener_promedio_binance("BUY")
+# 1. Convertir de moneda extranjera a BOB (bolivianos)
+@app.get("/cambio_a_bob")
+def cambio_a_bob(moneda: str = Query(..., description="Código de moneda (ej: USD, EUR, BRL, CNY)"), monto: float = Query(1)):
+    moneda = moneda.upper()
+    resultado = obtener_promedio_binance("SELL")
     if "error" in resultado:
         return {"error": resultado["error"]}
-    tc_bob_usd = resultado["promedio_bs"]
-    usd = monto_bob / tc_bob_usd
-    conversiones_fiat = {}
-    for codigo, nombre in MONEDAS_FIAT.items():
-        tasa = obtener_tasa("USD", codigo)
-        if tasa:
-            valor = usd * tasa
-            conversiones_fiat[nombre] = round(valor, 2)
-        else:
-            conversiones_fiat[nombre] = "No disponible"
-    precios_criptos = obtener_precios_cripto()
-    conversiones_cripto = {}
-    for cripto, cripto_id in CRYPTO_MAP.items():
-        if cripto == "USDT":
-            conversiones_cripto["Tether (USDT)"] = round(usd, 2)
-        else:
-            precio = precios_criptos.get(cripto_id, {}).get("usd")
-            if precio:
-                valor = usd / precio
-                conversiones_cripto[cripto] = round(valor, 6)
-            else:
-                conversiones_cripto[cripto] = "No disponible"
-    return {
-        "monto_bob": monto_bob,
-        "tc_bob_usd": tc_bob_usd,
-        "monto_usd": round(usd, 2),
-        "conversiones_fiat": conversiones_fiat,
-        "conversiones_cripto": conversiones_cripto,
-        "timestamp": datetime.now().isoformat()
-    }
+    tc_usd_bob = resultado["promedio_bs"]
 
-# Inversa: USD/EUR/YUAN a BOB
-@app.get("/convertir_a_bob")
-def convertir_a_bob(monto: float = Query(...), moneda: str = Query(...)):
-    moneda = moneda.upper()
     if moneda == "USD":
-        resultado = obtener_promedio_binance("SELL")
-        if "error" in resultado:
-            return {"error": resultado["error"]}
-        tc_usd_bob = resultado["promedio_bs"]
         monto_bob = monto * tc_usd_bob
         return {
-            "monto": monto,
-            "moneda": moneda,
-            "monto_bob": round(monto_bob, 2),
-            "tc_usd_bob": tc_usd_bob,
-            "timestamp": datetime.now().isoformat()
-        }
-    else:
-        tasa = obtener_tasa(moneda, "USD")
-        if not tasa:
-            return {"error": f"No se pudo obtener la tasa {moneda}->USD"}
-        resultado = obtener_promedio_binance("SELL")
-        if "error" in resultado:
-            return {"error": resultado["error"]}
-        tc_usd_bob = resultado["promedio_bs"]
-        monto_usd = monto * tasa
-        monto_bob = monto_usd * tc_usd_bob
-        return {
-            "monto": monto,
-            "moneda": moneda,
-            "monto_bob": round(monto_bob, 2),
-            "tc_usd_bob": tc_usd_bob,
-            f"tasa_{moneda.lower()}_usd": tasa,
-            "timestamp": datetime.now().isoformat()
-        }
-
-# Consulta rápida: ¿Cuánto es 1 USD, 1 EUR y 1 CNY (yuan) en bolivianos?
-@app.get("/cambio_bolivianos")
-def cambio_bolivianos():
-    resultado = {}
-
-    # USD a BOB
-    r_usd = obtener_promedio_binance("SELL")
-    if "error" in r_usd:
-        resultado["USD"] = r_usd["error"]
-    else:
-        resultado["USD"] = round(r_usd["promedio_bs"], 2)
-
-    # EUR a BOB
-    tasa_eur_usd = obtener_tasa("EUR", "USD")
-    if not tasa_eur_usd or "error" in r_usd:
-        resultado["EUR"] = "No disponible"
-    else:
-        resultado["EUR"] = round(r_usd["promedio_bs"] * tasa_eur_usd, 2)
-
-    # CNY (Yuan) a BOB
-    tasa_cny_usd = obtener_tasa("CNY", "USD")
-    if not tasa_cny_usd or "error" in r_usd:
-        resultado["CNY"] = "No disponible"
-    else:
-        resultado["CNY"] = round(r_usd["promedio_bs"] * tasa_cny_usd, 2)
-
-    return {
-        "bolivianos_por_unidad": resultado,
-        "fuente": "Binance P2P + Open Exchange Rates",
-        "timestamp": datetime.now().isoformat()
-    }
-
-# Solo fiat
-@app.get("/convertir_fiat")
-def convertir_fiat(monto_usd: float = Query(...)):
-    conversiones_fiat = {}
-    for codigo, nombre in MONEDAS_FIAT.items():
-        tasa = obtener_tasa("USD", codigo)
-        if tasa:
-            valor = monto_usd * tasa
-            conversiones_fiat[nombre] = round(valor, 2)
-        else:
-            conversiones_fiat[nombre] = "No disponible"
-    return {
-        "monto_usd": monto_usd,
-        "conversiones_fiat": conversiones_fiat,
-        "timestamp": datetime.now().isoformat()
-    }
-
-# Solo cripto
-@app.get("/convertir_cripto")
-def convertir_cripto(monto_usd: float = Query(...)):
-    precios_criptos = obtener_precios_cripto()
-    conversiones_cripto = {}
-    for cripto, cripto_id in CRYPTO_MAP.items():
-        precio = precios_criptos.get(cripto_id, {}).get("usd")
-        if precio:
-            valor = monto_usd / precio
-            conversiones_cripto[cripto] = round(valor, 6)
-        else:
-            conversiones_cripto[cripto] = "No disponible"
-    return {
-        "monto_usd": monto_usd,
-        "conversiones_cripto": conversiones_cripto,
-        "timestamp": datetime.now().isoformat()
-    }
-
-# Consulta simple: ¿cuánto es X de moneda a bolivianos?
-@app.get("/cambio_a_bob")
-def cambio_a_bob(moneda: str = Query(...), monto: float = Query(1)):
-    moneda = moneda.upper()
-    if moneda == "USD":
-        resultado = obtener_promedio_binance("SELL")
-        if "error" in resultado:
-            return {"error": resultado["error"]}
-        tc_usd_bob = resultado["promedio_bs"]
-        monto_bob = monto * tc_usd_bob
-        return {
-            "input": f"{monto} {moneda}",
+            "input": f"{monto} USD",
             "output": f"{round(monto_bob, 2)} BOB",
-            "tasa": tc_usd_bob
+            "tasa_usd_bob": tc_usd_bob
         }
     else:
         tasa = obtener_tasa(moneda, "USD")
         if not tasa:
             return {"error": f"No se pudo obtener la tasa {moneda}->USD"}
-        resultado = obtener_promedio_binance("SELL")
-        if "error" in resultado:
-            return {"error": resultado["error"]}
-        tc_usd_bob = resultado["promedio_bs"]
         monto_usd = monto * tasa
         monto_bob = monto_usd * tc_usd_bob
         return {
@@ -302,6 +132,61 @@ def cambio_a_bob(moneda: str = Query(...), monto: float = Query(1)):
             "tasa_usd_bob": tc_usd_bob,
             f"tasa_{moneda.lower()}_usd": tasa
         }
+
+# 2. Convertir de BOB a moneda extranjera
+@app.get("/cambio_desde_bob")
+def cambio_desde_bob(moneda: str = Query(..., description="Código de moneda (ej: USD, EUR, BRL, CNY)"), monto: float = Query(1)):
+    moneda = moneda.upper()
+    resultado = obtener_promedio_binance("BUY")
+    if "error" in resultado:
+        return {"error": resultado["error"]}
+    tc_bob_usd = resultado["promedio_bs"]
+
+    usd = monto / tc_bob_usd
+    if moneda == "USD":
+        return {
+            "input": f"{monto} BOB",
+            "output": f"{round(usd, 2)} USD",
+            "tasa_bob_usd": tc_bob_usd
+        }
+    else:
+        tasa = obtener_tasa("USD", moneda)
+        if not tasa:
+            return {"error": f"No se pudo obtener la tasa USD->{moneda}"}
+        valor = usd * tasa
+        return {
+            "input": f"{monto} BOB",
+            "output": f"{round(valor, 2)} {moneda}",
+            "tasa_bob_usd": tc_bob_usd,
+            f"tasa_usd_{moneda.lower()}": tasa
+        }
+
+# 3. Consulta rápida (todos a la vez): USD, EUR, BRL, CNY, ARS, COP, PEN, CLP, MXN, PYG
+@app.get("/cambio_bolivianos")
+def cambio_bolivianos():
+    resultado = {}
+    r_usd = obtener_promedio_binance("SELL")
+    if "error" in r_usd:
+        return {"error": r_usd["error"]}
+
+    tc_usd_bob = r_usd["promedio_bs"]
+    resultado["USD"] = round(tc_usd_bob, 2)
+
+    # Resto de monedas
+    for cod in MONEDAS_FIAT:
+        if cod == "USD":
+            continue
+        tasa = obtener_tasa(cod, "USD")
+        if tasa:
+            resultado[cod] = round(tc_usd_bob * tasa, 2)
+        else:
+            resultado[cod] = "No disponible"
+
+    return {
+        "bolivianos_por_unidad": resultado,
+        "fuente": "Binance P2P + Open Exchange Rates",
+        "timestamp": datetime.now().isoformat()
+    }
 
 if __name__ == "__main__":
     import uvicorn
