@@ -66,20 +66,32 @@ def obtener_tasa(base: str, destino: str):
         print(f"Error API open.er-api.com: {e}")
         return None
 
-def obtener_precio_usdt(cripto: str):
+# Mapeo símbolo cripto a id CoinGecko
+CRYPTO_IDS = {
+    "BTC": "bitcoin",
+    "ETH": "ethereum",
+    "USDT": "tether",
+    "USDC": "usd-coin",
+    "DAI": "dai"
+}
+
+def obtener_precio_coingecko(cripto: str):
+    cripto_id = CRYPTO_IDS.get(cripto.upper())
+    if not cripto_id:
+        return None
     try:
-        url = f"https://api.binance.com/api/v3/ticker/price?symbol={cripto.upper()}USDT"
+        url = f"https://api.coingecko.com/api/v3/simple/price?ids={cripto_id}&vs_currencies=usd"
         r = requests.get(url, timeout=10)
         r.raise_for_status()
         data = r.json()
-        return float(data['price'])
+        return data.get(cripto_id, {}).get("usd")
     except Exception as e:
-        print(f"Error Binance: {e}")
+        print(f"Error CoinGecko: {e}")
         return None
 
 @app.get("/")
 def root():
-    return {"mensaje": "API de dólar paralelo Bolivia - /compra | /venta | /dolar-paralelo | /convertir_bob | /precio_cripto"}
+    return {"mensaje": "API dólar paralelo Bolivia - /compra | /venta | /dolar-paralelo | /convertir_bob | /precio_cripto"}
 
 @app.get("/compra")
 def dolar_compra():
@@ -147,7 +159,7 @@ def convertir_bob(
         if cripto == "USDT":
             conversiones_cripto[nombre] = round(usd, 2)
         else:
-            precio = obtener_precio_usdt(cripto)
+            precio = obtener_precio_coingecko(cripto)
             if precio:
                 valor = usd / precio
                 conversiones_cripto[nombre] = round(valor, 6)
@@ -167,7 +179,7 @@ def convertir_bob(
 def precio_cripto(
     cripto: str = Query(..., description="Símbolo de la criptomoneda, por ejemplo BTC, ETH")
 ):
-    precio = obtener_precio_usdt(cripto)
+    precio = obtener_precio_coingecko(cripto)
     if precio is None:
         return {"error": f"No se pudo obtener el precio para {cripto}"}
     return {
