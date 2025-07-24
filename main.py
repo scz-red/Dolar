@@ -6,8 +6,11 @@ from datetime import datetime
 app = FastAPI()
 
 origins = [
+    "https://lupo.lat",
+    "https://www.lupo.lat",
     "https://api.lupo.lat",
-    "https://www.lupo.lat"
+    "http://localhost:8000",
+    "http://127.0.0.1:5500"
 ]
 
 app.add_middleware(
