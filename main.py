@@ -33,10 +33,18 @@ def obtener_promedio(direccion: str):
 
     for anuncio in anuncios:
         adv = anuncio.get("adv", {})
+        conditions = adv.get("tradeMethods", [])
         precio = float(adv.get("price", 0))
 
-        # Aquí puedes filtrar anuncios con restricciones
-        if adv.get("tradableQuantity", "0").startswith("1"):  # Filtra anuncios de mínimo 1 BTC
+        restricciones = any(
+            (
+                (method.get("tradeMethodName") and "BTC" in method.get("tradeMethodName").upper())
+                or
+                (method.get("identifier") and "BTC" in method.get("identifier").upper())
+            )
+            for method in conditions
+        )
+        if restricciones:
             continue
 
         precios_validos.append(precio)
@@ -60,12 +68,13 @@ def obtener_promedio(direccion: str):
 
 def obtener_tasa(base: str, destino: str):
     try:
-        url = f"https://api.exchangerate.host/latest?base={base}&symbols={destino}"
+        url = f"https://open.er-api.com/v6/latest/{base}"
         r = requests.get(url, timeout=10)
         r.raise_for_status()
         data = r.json()
-        return data['rates'][destino]
-    except Exception:
+        return data['rates'].get(destino)
+    except Exception as e:
+        print(f"Error API open.er-api.com: {e}")
         return None
 
 def obtener_precio_usdt(cripto):
@@ -75,7 +84,8 @@ def obtener_precio_usdt(cripto):
         r.raise_for_status()
         data = r.json()
         return float(data['price'])
-    except Exception:
+    except Exception as e:
+        print(f"Error Binance: {e}")
         return None
 
 @app.get("/")
