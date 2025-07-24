@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Calculadora de Remesas</title>
+<style>
+  @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css');
+
+  body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: #f5f7fa;
+    color: #222;
+    margin: 0; padding: 20px;
+    display: flex; justify-content: center; align-items: flex-start; min-height: 100vh;
+  }
+
+  .container {
+    max-width: 480px;
+    width: 100%;
+    background: #fff;
+    padding: 24px 32px;
+    border-radius: 16px;
+    box-shadow: 0 10px 30px rgb(0 0 0 / 0.1);
+  }
+
+  h1 {
+    font-weight: 700;
+    margin-bottom: 24px;
+    text-align: center;
+    color: #1a73e8;
+  }
+
+  label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+
+  input[type=number] {
+    width: 100%;
+    padding: 12px 16px;
+    font-size: 1rem;
+    border-radius: 8px;
+    border: 1.5px solid #ccc;
+    transition: border-color 0.3s ease;
+  }
+  input[type=number]:focus {
+    outline: none;
+    border-color: #1a73e8;
+  }
+
+  button {
+    margin-top: 20px;
+    width: 100%;
+    padding: 14px;
+    background: #1a73e8;
+    color: white;
+    font-weight: 700;
+    font-size: 1.1rem;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: background 0.3s ease;
+  }
+  button:hover {
+    background: #155ab6;
+  }
+
+  .results {
+    margin-top: 32px;
+  }
+
+  .section-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: 12px;
+    border-bottom: 2px solid #1a73e8;
+    padding-bottom: 4px;
+  }
+
+  ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  li {
+    display: flex;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid #eee;
+  }
+
+  li:last-child {
+    border-bottom: none;
+  }
+
+  .icon {
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    margin-right: 12px;
+    font-size: 20px;
+    color: #1a73e8;
+  }
+
+  .name {
+    flex-grow: 1;
+    font-weight: 600;
+  }
+
+  .value {
+    font-weight: 700;
+    color: #333;
+  }
+
+  /* Responsive */
+  @media (max-width: 520px) {
+    .container {
+      padding: 20px;
+      margin: 10px;
+    }
+    h1 {
+      font-size: 1.5rem;
+    }
+  }
+</style>
+</head>
+<body>
+  <div class="container" role="main">
+    <h1>Calculadora de Remesas</h1>
+    <label for="monto">Monto en Bolivianos (BOB)</label>
+    <input type="number" id="monto" min="1" value="1000" />
+    <button id="calcular">Calcular</button>
+
+    <div class="results" aria-live="polite" aria-atomic="true">
+      <div class="section-title">Monedas Fiat</div>
+      <ul id="fiat-list"></ul>
+
+      <div class="section-title" style="margin-top:24px;">Criptomonedas</div>
+      <ul id="crypto-list"></ul>
+    </div>
+  </div>
+
+<script>
+  const fiatIcons = {
+    "Dólar estadounidense": "fa-dollar-sign",
+    "Peso colombiano": "fa-coins",
+    "Peso argentino": "fa-coins",
+    "Peso chileno": "fa-coins",
+    "Real brasileño": "fa-coins",
+    "Sol peruano": "fa-coins",
+    "Euro": "fa-euro-sign",
+    "Yuan chino": "fa-yen-sign",
+    "Guaraní paraguayo": "fa-coins",
+    "Peso mexicano": "fa-coins"
+  };
+
+  const cryptoIcons = {
+    "Tether (USDT)": "fa-usdt",
+    "BTC": "fa-btc",
+    "ETH": "fa-ethereum",
+    "USDC": "fa-coins",
+    "DOGE": "fa-dog",
+    "SOL": "fa-s",
+    "PEPE": "fa-frog",
+    "TRUMP": "fa-flag-usa"
+  };
+
+  const montoInput = document.getElementById('monto');
+  const calcularBtn = document.getElementById('calcular');
+  const fiatList = document.getElementById('fiat-list');
+  const cryptoList = document.getElementById('crypto-list');
+
+  function clearResults() {
+    fiatList.innerHTML = '';
+    cryptoList.innerHTML = '';
+  }
+
+  function renderList(listElement, data, iconMap) {
+    for (const [name, value] of Object.entries(data)) {
+      const li = document.createElement('li');
+
+      const icon = document.createElement('i');
+      icon.classList.add('icon', 'fas');
+      if (iconMap[name]) icon.classList.add(iconMap[name]);
+      else icon.classList.add('fa-coins');
+
+      const spanName = document.createElement('span');
+      spanName.classList.add('name');
+      spanName.textContent = name;
+
+      const spanValue = document.createElement('span');
+      spanValue.classList.add('value');
+      spanValue.textContent = typeof value === "number" ? value.toLocaleString() : value;
+
+      li.append(icon, spanName, spanValue);
+      listElement.appendChild(li);
+    }
+  }
+
+  async function calcular() {
+    const monto = montoInput.value;
+    if (!monto || monto <= 0) {
+      alert("Ingresa un monto válido");
+      return;
+    }
+
+    clearResults();
+
+    try {
+      const res = await fetch(`https://api.lupo.lat/convertir_bob?monto_bob=${monto}`);
+      if (!res.ok) throw new Error(`Error API: ${res.status}`);
+
+      const data = await res.json();
+
+      if (data.error) {
+        alert("Error: " + data.error);
+        return;
+      }
+
+      renderList(fiatList, data.conversiones_fiat, fiatIcons);
+      renderList(cryptoList, data.conversiones_cripto, cryptoIcons);
+
+    } catch (error) {
+      alert("No se pudo obtener datos. Intenta luego.");
+      console.error(error);
+    }
+  }
+
+  calcularBtn.addEventListener('click', calcular);
+
+  // Ejecutar la primera vez con monto por defecto
+  window.addEventListener('load', () => {
+    calcular();
+  });
+</script>
+<script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
+</body>
+</html>
