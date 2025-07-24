@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 import requests
 from datetime import datetime
 
@@ -33,12 +33,10 @@ def obtener_promedio(direccion: str):
 
     for anuncio in anuncios:
         adv = anuncio.get("adv", {})
-        # advertiser = anuncio.get("advertiser", {})  # No se usa
-        precio = float(adv.get("price", 0))
-        # min_limit = float(adv.get("minSingleTransAmount", 0))  # No se usa
         conditions = adv.get("tradeMethods", [])
+        precio = float(adv.get("price", 0))
 
-        # Filtro PRO: solo toma anuncios SIN restricciones "BTC" en tradeMethodName o identifier
+        # Filtro PRO: solo toma anuncios SIN restricciones "BTC"
         restricciones = any(
             (
                 (method.get("tradeMethodName") and "BTC" in method.get("tradeMethodName").upper())
@@ -47,12 +45,10 @@ def obtener_promedio(direccion: str):
             )
             for method in conditions
         )
-
         if restricciones:
             continue
 
         precios_validos.append(precio)
-
         if len(precios_validos) == 5:
             break
 
@@ -71,9 +67,29 @@ def obtener_promedio(direccion: str):
         "timestamp": datetime.now().isoformat()
     }
 
+def obtener_tasa(base: str, destino: str):
+    try:
+        url = f"https://api.exchangerate.host/latest?base={base}&symbols={destino}"
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        return data['rates'][destino]
+    except Exception:
+        return None
+
+def obtener_precio_usdt(cripto):
+    try:
+        url = f"https://api.binance.com/api/v3/ticker/price?symbol={cripto}USDT"
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        return float(data['price'])
+    except Exception:
+        return None
+
 @app.get("/")
 def root():
-    return {"mensaje": "API de dólar paralelo Bolivia - /compra | /venta | /dolar-paralelo"}
+    return {"mensaje": "API de dólar paralelo Bolivia - /compra | /venta | /dolar-paralelo | /convertir_bob"}
 
 @app.get("/compra")
 def dolar_compra():
@@ -94,4 +110,65 @@ def dolar_paralelo():
         "venta_bs": venta.get("promedio_bs"),
         "anuncios_compra": compra.get("anuncios_validos"),
         "anuncios_venta": venta.get("anuncios_validos")
+    }
+
+@app.get("/convertir_bob")
+def convertir_bob(
+    monto_bob: float = Query(1000, description="Monto en bolivianos a convertir")
+):
+    tc_bob_usd = obtener_promedio("BUY").get("promedio_bs")
+    if not tc_bob_usd:
+        return {"error": "No se pudo obtener tipo de cambio paralelo."}
+
+    usd = monto_bob / tc_bob_usd
+
+    monedas = {
+        "USD": "Dólar estadounidense",
+        "COP": "Peso colombiano",
+        "ARS": "Peso argentino",
+        "CLP": "Peso chileno",
+        "BRL": "Real brasileño",
+        "PEN": "Sol peruano",
+        "EUR": "Euro",
+        "CNY": "Yuan chino",
+        "PYG": "Guaraní paraguayo",
+        "MXN": "Peso mexicano"
+    }
+
+    conversiones_fiat = {}
+    for codigo, nombre in monedas.items():
+        tasa = obtener_tasa("USD", codigo)
+        if tasa:
+            valor = usd * tasa
+            conversiones_fiat[nombre] = round(valor, 2)
+        else:
+            conversiones_fiat[nombre] = "No disponible"
+
+    criptos = {
+        "USDT": "Tether (USDT)",
+        "BTC": "Bitcoin (BTC)",
+        "ETH": "Ethereum (ETH)",
+        "USDC": "USD Coin (USDC)",
+        "DAI": "Dai (DAI)"
+    }
+    conversiones_cripto = {}
+
+    for cripto, nombre in criptos.items():
+        if cripto == "USDT":
+            conversiones_cripto[nombre] = round(usd, 2)
+        else:
+            precio = obtener_precio_usdt(cripto)
+            if precio:
+                valor = usd / precio  # Cuántos BTC/ETH... equivalen a ese USD
+                conversiones_cripto[nombre] = round(valor, 6)
+            else:
+                conversiones_cripto[nombre] = "No disponible"
+
+    return {
+        "monto_bob": monto_bob,
+        "tc_bob_usd": tc_bob_usd,
+        "monto_usd": round(usd, 2),
+        "conversiones_fiat": conversiones_fiat,
+        "conversiones_cripto": conversiones_cripto,
+        "timestamp": datetime.now().isoformat()
     }
