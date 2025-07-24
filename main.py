@@ -1,8 +1,26 @@
 from fastapi import FastAPI, Query
+from fastapi.middleware.cors import CORSMiddleware
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime
 
 app = FastAPI()
+
+# Configuración CORS para permitir peticiones desde frontend
+origins = [
+    "http://localhost",
+    "http://localhost:8000",
+    "http://127.0.0.1:5500",
+    "https://tu-dominio.com",  # Cambia aquí por tu dominio real
+    "*",  # Para desarrollo, permite todos los orígenes (ajustar en producción)
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 CRYPTO_MAP = {
     "USDT": "tether",
@@ -15,91 +33,63 @@ CRYPTO_MAP = {
     "TRUMP": "trumpcoin"
 }
 
-CACHE = {
-    "promedio": {"value": None, "timestamp": datetime.min},
-    "tasas": {"value": {}, "timestamp": datetime.min},
-    "criptos": {"value": {}, "timestamp": datetime.min}
-}
-
-CACHE_TTL = timedelta(seconds=60)  # Tiempo de caché, ajustar según necesidad
-
 def obtener_promedio(direccion: str):
-    ahora = datetime.now()
-    if CACHE["promedio"]["value"] and ahora - CACHE["promedio"]["timestamp"] < CACHE_TTL:
-        return CACHE["promedio"]["value"]
-
     url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0"
+    }
     data = {
-        "page": 1,
-        "rows": 20,
-        "payTypes": [],
         "asset": "USDT",
         "fiat": "BOB",
-        "tradeType": direccion.upper()
+        "tradeType": direccion,
+        "page": 1,
+        "rows": 10,
+        "payTypes": [],
+        "publisherType": None
     }
     try:
-        response = requests.post(url, headers={"Content-Type": "application/json"}, json=data, timeout=10)
+        response = requests.post(url, headers=headers, json=data, timeout=10)
         response.raise_for_status()
         anuncios = response.json().get("data", [])
     except Exception as e:
-        return {
-            "error": "Error al consultar Binance",
-            "detalle": str(e),
-            "timestamp": ahora.isoformat()
-        }
+        return {"error": f"Error al consultar Binance: {str(e)}"}
 
     precios_validos = []
     for anuncio in anuncios:
         adv = anuncio.get("adv", {})
-        restricciones = adv.get("minSingleTransAmount", 0)
-        if restricciones and float(restricciones) > 2000:
+        min_trans = adv.get("minSingleTransAmount", 0)
+        if min_trans and float(min_trans) > 2000:
             continue
         precio = float(adv.get("price", 0))
         precios_validos.append(precio)
-        if len(precios_validos) == 5:
+        if len(precios_validos) >= 5:
             break
 
     if not precios_validos:
-        resultado = {
-            "error": "No hay suficientes anuncios válidos.",
-            "direccion": direccion.lower(),
-            "timestamp": ahora.isoformat()
-        }
-    else:
-        promedio = sum(precios_validos) / len(precios_validos)
-        resultado = {
-            "direccion": direccion.lower(),
-            "promedio_bs": round(promedio, 2),
-            "anuncios_validos": len(precios_validos),
-            "timestamp": ahora.isoformat()
-        }
+        return {"error": "No hay suficientes anuncios válidos."}
 
-    CACHE["promedio"] = {"value": resultado, "timestamp": ahora}
-    return resultado
+    promedio = sum(precios_validos) / len(precios_validos)
+    return {"promedio_bs": round(promedio, 2), "anuncios_validos": len(precios_validos)}
 
 def obtener_tasa(base: str, destino: str):
-    ahora = datetime.now()
-    if destino in CACHE["tasas"]["value"] and ahora - CACHE["tasas"]["timestamp"] < CACHE_TTL:
-        return CACHE["tasas"]["value"][destino]
-
     try:
         url = f"https://open.er-api.com/v6/latest/{base}"
         r = requests.get(url, timeout=10)
         r.raise_for_status()
         data = r.json()
-        tasa = data['rates'].get(destino)
-        CACHE["tasas"]["value"][destino] = tasa
-        CACHE["tasas"]["timestamp"] = ahora
-        return tasa
+        return data['rates'].get(destino)
     except Exception as e:
         print(f"Error API open.er-api.com: {e}")
         return None
 
 @app.get("/convertir_bob")
-def convertir_bob(
-    monto_bob: float = Query(1000, description="Monto en bolivianos a convertir")
-):
-    tc_bob_usd = obtener_promedio("BUY").get("promedio_bs")
+def convertir_bob(monto_bob: float = Query(1000, description="Monto en bolivianos a convertir")):
+    resultado_promedio = obtener_promedio("BUY")
+    if "error" in resultado_promedio:
+        return {"error": resultado_promedio["error"]}
+
+    tc_bob_usd = resultado_promedio.get("promedio_bs")
     if not tc_bob_usd:
         return {"error": "No se pudo obtener tipo de cambio paralelo."}
 
@@ -127,19 +117,14 @@ def convertir_bob(
         else:
             conversiones_fiat[nombre] = "No disponible"
 
-    ahora = datetime.now()
-    if CACHE["criptos"]["value"] and ahora - CACHE["criptos"]["timestamp"] < CACHE_TTL:
-        precios_criptos = CACHE["criptos"]["value"]
-    else:
-        cripto_ids = ",".join(CRYPTO_MAP.values())
-        try:
-            url = f"https://api.coingecko.com/api/v3/simple/price?ids={cripto_ids}&vs_currencies=usd"
-            r = requests.get(url, timeout=10)
-            r.raise_for_status()
-            precios_criptos = r.json()
-            CACHE["criptos"] = {"value": precios_criptos, "timestamp": ahora}
-        except Exception as e:
-            precios_criptos = {}
+    cripto_ids = ",".join(CRYPTO_MAP.values())
+    try:
+        url = f"https://api.coingecko.com/api/v3/simple/price?ids={cripto_ids}&vs_currencies=usd"
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        precios_criptos = r.json()
+    except Exception as e:
+        precios_criptos = {}
 
     conversiones_cripto = {}
     for cripto, cripto_id in CRYPTO_MAP.items():
@@ -159,5 +144,5 @@ def convertir_bob(
         "monto_usd": round(usd, 2),
         "conversiones_fiat": conversiones_fiat,
         "conversiones_cripto": conversiones_cripto,
-        "timestamp": ahora.isoformat()
+        "timestamp": datetime.now().isoformat()
     }
