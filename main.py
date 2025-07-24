@@ -8,24 +8,6 @@ HEADERS = {
     "Content-Type": "application/json"
 }
 
-# Cache global para IDs de criptos (símbolo -> id)
-CACHE_COINS = {}
-
-def cargar_cache_coins():
-    global CACHE_COINS
-    try:
-        url = "https://api.coingecko.com/api/v3/coins/list"
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
-        coins = r.json()
-        CACHE_COINS = {coin['symbol'].lower(): coin['id'] for coin in coins}
-        print(f"Cargados {len(CACHE_COINS)} símbolos de cripto en cache")
-    except Exception as e:
-        print(f"Error cargando cache de monedas: {e}")
-
-# Carga al iniciar la app
-cargar_cache_coins()
-
 def obtener_promedio(direccion: str):
     url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
     data = {
@@ -84,23 +66,20 @@ def obtener_tasa(base: str, destino: str):
         print(f"Error API open.er-api.com: {e}")
         return None
 
-def obtener_precio_coingecko(cripto_simbolo):
-    cripto_id = CACHE_COINS.get(cripto_simbolo.lower())
-    if not cripto_id:
-        return None
+def obtener_precio_usdt(cripto: str):
     try:
-        url = f"https://api.coingecko.com/api/v3/simple/price?ids={cripto_id}&vs_currencies=usd"
+        url = f"https://api.binance.com/api/v3/ticker/price?symbol={cripto.upper()}USDT"
         r = requests.get(url, timeout=10)
         r.raise_for_status()
         data = r.json()
-        return data.get(cripto_id, {}).get('usd')
+        return float(data['price'])
     except Exception as e:
-        print(f"Error obtener_precio_coingecko: {e}")
+        print(f"Error Binance: {e}")
         return None
 
 @app.get("/")
 def root():
-    return {"mensaje": "API dólar paralelo Bolivia - /compra | /venta | /dolar-paralelo | /convertir_bob | /precio_cripto"}
+    return {"mensaje": "API de dólar paralelo Bolivia - /compra | /venta | /dolar-paralelo | /convertir_bob | /precio_cripto"}
 
 @app.get("/compra")
 def dolar_compra():
@@ -160,7 +139,10 @@ def convertir_bob(
         "BTC": "Bitcoin (BTC)",
         "ETH": "Ethereum (ETH)",
         "USDC": "USD Coin (USDC)",
-        "DAI": "Dai (DAI)"
+        "DOGE": "Dogecoin (DOGE)",
+        "SOL": "Solana (SOL)",
+        "PEPE": "Pepe (PEPE)",
+        "TRUMP": "Trump (TRUMP)"
     }
     conversiones_cripto = {}
 
@@ -168,7 +150,7 @@ def convertir_bob(
         if cripto == "USDT":
             conversiones_cripto[nombre] = round(usd, 2)
         else:
-            precio = obtener_precio_coingecko(cripto)
+            precio = obtener_precio_usdt(cripto)
             if precio:
                 valor = usd / precio
                 conversiones_cripto[nombre] = round(valor, 6)
@@ -188,7 +170,7 @@ def convertir_bob(
 def precio_cripto(
     cripto: str = Query(..., description="Símbolo de la criptomoneda, por ejemplo BTC, ETH")
 ):
-    precio = obtener_precio_coingecko(cripto)
+    precio = obtener_precio_usdt(cripto)
     if precio is None:
         return {"error": f"No se pudo obtener el precio para {cripto}"}
     return {
