@@ -146,3 +146,81 @@ def convertir_bob(monto_bob: float = Query(1000, description="Monto en boliviano
         "conversiones_cripto": conversiones_cripto,
         "timestamp": datetime.now().isoformat()
     }
+
+# --------- NUEVOS ENDPOINTS ABAJO ---------
+
+@app.get("/convertir_bob_moneda")
+def convertir_bob_moneda(moneda: str = Query(...), monto_bob: float = Query(1000)):
+    moneda = moneda.upper()
+    resultado_promedio = obtener_promedio("BUY")
+    if "error" in resultado_promedio:
+        return {"error": resultado_promedio["error"]}
+    tc_bob_usd = resultado_promedio.get("promedio_bs")
+    usd = monto_bob / tc_bob_usd
+    if moneda == "USD":
+        valor = usd
+    else:
+        tasa = obtener_tasa("USD", moneda)
+        if not tasa:
+            return {"error": f"No se pudo obtener la tasa USD->{moneda}"}
+        valor = usd * tasa
+    return {
+        "input": f"{monto_bob} BOB",
+        "output": f"{round(valor, 2)} {moneda}",
+        "tc_bob_usd": tc_bob_usd,
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.get("/cambio_a_bob")
+def cambio_a_bob(moneda: str = Query(...), monto: float = Query(1)):
+    moneda = moneda.upper()
+    resultado_promedio = obtener_promedio("SELL")
+    if "error" in resultado_promedio:
+        return {"error": resultado_promedio["error"]}
+    tc_usd_bob = resultado_promedio.get("promedio_bs")
+    if moneda == "USD":
+        monto_bob = monto * tc_usd_bob
+        return {
+            "input": f"{monto} USD",
+            "output": f"{round(monto_bob, 2)} BOB",
+            "tasa_usd_bob": tc_usd_bob,
+            "timestamp": datetime.now().isoformat()
+        }
+    else:
+        tasa = obtener_tasa(moneda, "USD")
+        if not tasa:
+            return {"error": f"No se pudo obtener la tasa {moneda}->USD"}
+        monto_usd = monto * tasa
+        monto_bob = monto_usd * tc_usd_bob
+        return {
+            "input": f"{monto} {moneda}",
+            "output": f"{round(monto_bob, 2)} BOB",
+            "tasa_usd_bob": tc_usd_bob,
+            f"tasa_{moneda.lower()}_usd": tasa,
+            "timestamp": datetime.now().isoformat()
+        }
+
+@app.get("/cambio_bolivianos")
+def cambio_bolivianos():
+    monedas = [
+        "USD", "EUR", "COP", "ARS", "CLP",
+        "BRL", "PEN", "CNY", "PYG", "MXN"
+    ]
+    resultado_promedio = obtener_promedio("SELL")
+    if "error" in resultado_promedio:
+        return {"error": resultado_promedio["error"]}
+    tc_usd_bob = resultado_promedio.get("promedio_bs")
+    cotizaciones = {"USD": round(tc_usd_bob, 2)}
+    for cod in monedas:
+        if cod == "USD":
+            continue
+        tasa = obtener_tasa(cod, "USD")
+        if tasa:
+            cotizaciones[cod] = round(tc_usd_bob * tasa, 2)
+        else:
+            cotizaciones[cod] = "No disponible"
+    return {
+        "bolivianos_por_unidad": cotizaciones,
+        "fuente": "Binance P2P + Open Exchange Rates",
+        "timestamp": datetime.now().isoformat()
+    }
