@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Query
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 
 app = FastAPI()
 
@@ -11,33 +11,48 @@ CRYPTO_MAP = {
     "USDC": "usd-coin",
     "DOGE": "dogecoin",
     "SOL": "solana",
-    "PEPE": "pepecoin",
+    "PEPE": "pepe",
     "TRUMP": "trumpcoin"
 }
 
+CACHE = {
+    "promedio": {"value": None, "timestamp": datetime.min},
+    "tasas": {"value": {}, "timestamp": datetime.min},
+    "criptos": {"value": {}, "timestamp": datetime.min}
+}
+
+CACHE_TTL = timedelta(seconds=60)  # Tiempo de caché, ajustar según necesidad
+
 def obtener_promedio(direccion: str):
+    ahora = datetime.now()
+    if CACHE["promedio"]["value"] and ahora - CACHE["promedio"]["timestamp"] < CACHE_TTL:
+        return CACHE["promedio"]["value"]
+
     url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
-    headers = {"Content-Type": "application/json"}
     data = {
         "page": 1,
-        "rows": 10,
+        "rows": 20,
         "payTypes": [],
         "asset": "USDT",
         "fiat": "BOB",
         "tradeType": direccion.upper()
     }
     try:
-        response = requests.post(url, headers=headers, json=data, timeout=10)
+        response = requests.post(url, headers={"Content-Type": "application/json"}, json=data, timeout=10)
         response.raise_for_status()
         anuncios = response.json().get("data", [])
     except Exception as e:
-        return {"error": f"Error al consultar Binance: {e}"}
+        return {
+            "error": "Error al consultar Binance",
+            "detalle": str(e),
+            "timestamp": ahora.isoformat()
+        }
 
     precios_validos = []
     for anuncio in anuncios:
         adv = anuncio.get("adv", {})
-        # Filtrar anuncios con monto mínimo muy alto
-        if adv.get("minSingleTransAmount") and float(adv["minSingleTransAmount"]) > 2000:
+        restricciones = adv.get("minSingleTransAmount", 0)
+        if restricciones and float(restricciones) > 2000:
             continue
         precio = float(adv.get("price", 0))
         precios_validos.append(precio)
@@ -45,46 +60,40 @@ def obtener_promedio(direccion: str):
             break
 
     if not precios_validos:
-        return {"error": "No hay suficientes anuncios válidos."}
+        resultado = {
+            "error": "No hay suficientes anuncios válidos.",
+            "direccion": direccion.lower(),
+            "timestamp": ahora.isoformat()
+        }
+    else:
+        promedio = sum(precios_validos) / len(precios_validos)
+        resultado = {
+            "direccion": direccion.lower(),
+            "promedio_bs": round(promedio, 2),
+            "anuncios_validos": len(precios_validos),
+            "timestamp": ahora.isoformat()
+        }
 
-    promedio = sum(precios_validos) / len(precios_validos)
-    return {"promedio_bs": round(promedio, 2)}
+    CACHE["promedio"] = {"value": resultado, "timestamp": ahora}
+    return resultado
 
 def obtener_tasa(base: str, destino: str):
+    ahora = datetime.now()
+    if destino in CACHE["tasas"]["value"] and ahora - CACHE["tasas"]["timestamp"] < CACHE_TTL:
+        return CACHE["tasas"]["value"][destino]
+
     try:
         url = f"https://open.er-api.com/v6/latest/{base}"
         r = requests.get(url, timeout=10)
         r.raise_for_status()
         data = r.json()
-        return data['rates'].get(destino)
+        tasa = data['rates'].get(destino)
+        CACHE["tasas"]["value"][destino] = tasa
+        CACHE["tasas"]["timestamp"] = ahora
+        return tasa
     except Exception as e:
         print(f"Error API open.er-api.com: {e}")
         return None
-
-@app.get("/")
-def root():
-    return {"mensaje": "API de dólar paralelo Bolivia - /compra | /venta | /dolar-paralelo | /convertir_bob"}
-
-@app.get("/compra")
-def dolar_compra():
-    return obtener_promedio("BUY")
-
-@app.get("/venta")
-def dolar_venta():
-    return obtener_promedio("SELL")
-
-@app.get("/dolar-paralelo")
-def dolar_paralelo():
-    compra = obtener_promedio("BUY")
-    venta = obtener_promedio("SELL")
-    return {
-        "fuente": "Binance P2P",
-        "timestamp": datetime.now().isoformat(),
-        "compra_bs": compra.get("promedio_bs"),
-        "venta_bs": venta.get("promedio_bs"),
-        "anuncios_compra": len(compra.get("promedio_bs", [])),
-        "anuncios_venta": len(venta.get("promedio_bs", []))
-    }
 
 @app.get("/convertir_bob")
 def convertir_bob(
@@ -118,14 +127,19 @@ def convertir_bob(
         else:
             conversiones_fiat[nombre] = "No disponible"
 
-    cripto_ids = ",".join(CRYPTO_MAP.values())
-    try:
-        url = f"https://api.coingecko.com/api/v3/simple/price?ids={cripto_ids}&vs_currencies=usd"
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
-        precios_criptos = r.json()
-    except Exception:
-        precios_criptos = {}
+    ahora = datetime.now()
+    if CACHE["criptos"]["value"] and ahora - CACHE["criptos"]["timestamp"] < CACHE_TTL:
+        precios_criptos = CACHE["criptos"]["value"]
+    else:
+        cripto_ids = ",".join(CRYPTO_MAP.values())
+        try:
+            url = f"https://api.coingecko.com/api/v3/simple/price?ids={cripto_ids}&vs_currencies=usd"
+            r = requests.get(url, timeout=10)
+            r.raise_for_status()
+            precios_criptos = r.json()
+            CACHE["criptos"] = {"value": precios_criptos, "timestamp": ahora}
+        except Exception as e:
+            precios_criptos = {}
 
     conversiones_cripto = {}
     for cripto, cripto_id in CRYPTO_MAP.items():
@@ -145,5 +159,5 @@ def convertir_bob(
         "monto_usd": round(usd, 2),
         "conversiones_fiat": conversiones_fiat,
         "conversiones_cripto": conversiones_cripto,
-        "timestamp": datetime.now().isoformat()
+        "timestamp": ahora.isoformat()
     }
