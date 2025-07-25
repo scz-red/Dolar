@@ -89,15 +89,15 @@ def convertir_bob(monto_bob: float = Query(1000, description="Monto en boliviano
 
     monedas = {
         "USD": "Dólar estadounidense",
+        "EUR": "Euro",
         "COP": "Peso colombiano",
         "ARS": "Peso argentino",
         "CLP": "Peso chileno",
         "BRL": "Real brasileño",
         "PEN": "Sol peruano",
-        "EUR": "Euro",
-        "CNY": "Yuan chino",
         "PYG": "Guaraní paraguayo",
         "MXN": "Peso mexicano"
+        "CNY": "Yuan chino",
     }
 
     conversiones_fiat = {}
