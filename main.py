@@ -1,15 +1,14 @@
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 import requests
-from datetime import datetime, timedelta
-import time
+from datetime import datetime
 
-app = FastAPI(title="API Paralelo", version="1.4")
+app = FastAPI()
 
-# CORS global para frontend
+# CORS público, compatible con cualquier frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Permite todos los orígenes (API pública)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -26,17 +25,12 @@ CRYPTO_MAP = {
     "TRUMP": "trumpcoin"
 }
 
-cache_binance = {"BUY": (None, None)}
-cache_rates = {}
-CACHE_EXP = timedelta(seconds=60)
-
 def obtener_promedio(direccion: str):
-    now = datetime.now()
-    valor, ts = cache_binance.get(direccion, (None, None))
-    if valor and ts and (now - ts) < CACHE_EXP:
-        return valor
     url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
-    headers = {"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0"
+    }
     data = {
         "asset": "USDT",
         "fiat": "BOB",
@@ -51,7 +45,7 @@ def obtener_promedio(direccion: str):
         response.raise_for_status()
         anuncios = response.json().get("data", [])
     except Exception as e:
-        return {"error": f"Error Binance: {str(e)}"}
+        return {"error": f"Error al consultar Binance: {str(e)}"}
 
     precios_validos = []
     for anuncio in anuncios:
@@ -68,43 +62,18 @@ def obtener_promedio(direccion: str):
         return {"error": "No hay suficientes anuncios válidos."}
 
     promedio = sum(precios_validos) / len(precios_validos)
-    result = {"promedio_bs": round(promedio, 2), "anuncios_validos": len(precios_validos)}
-    cache_binance[direccion] = (result, now)
-    return result
+    return {"promedio_bs": round(promedio, 2), "anuncios_validos": len(precios_validos)}
 
 def obtener_tasa(base: str, destino: str):
-    key = f"{base}-{destino}"
-    now = datetime.now()
-    entry = cache_rates.get(key)
-    if entry and (now - entry['ts']) < CACHE_EXP:
-        return entry['rate']
     try:
-        url = f"https://api.exchangerate.host/convert?from={base}&to={destino}&amount=1"
+        url = f"https://open.er-api.com/v6/latest/{base}"
         r = requests.get(url, timeout=10)
         r.raise_for_status()
         data = r.json()
-        rate = data.get('result', None)
-        if rate:
-            cache_rates[key] = {"rate": rate, "ts": now}
-        return rate
+        return data['rates'].get(destino)
     except Exception as e:
-        print(f"Error API exchangerate.host: {e}")
+        print(f"Error API open.er-api.com: {e}")
         return None
-
-def obtener_precios_criptos(cripto_ids):
-    url = f"https://api.coingecko.com/api/v3/simple/price?ids={','.join(cripto_ids)}&vs_currencies=usd"
-    for intento in range(3):
-        try:
-            r = requests.get(url, timeout=8)
-            r.raise_for_status()
-            data = r.json()
-            if data:
-                return data
-        except Exception as e:
-            if intento == 2:
-                print(f"Error CoinGecko: {e}")
-            time.sleep(0.5)
-    return {}
 
 @app.get("/convertir_bob")
 def convertir_bob(monto_bob: float = Query(1000, description="Monto en bolivianos a convertir")):
@@ -131,19 +100,23 @@ def convertir_bob(monto_bob: float = Query(1000, description="Monto en boliviano
         "MXN": "Peso mexicano"
     }
 
-    # --- FIAT ---
     conversiones_fiat = {}
     for codigo, nombre in monedas.items():
-        tasa = obtener_tasa("USD", codigo)  # SIEMPRE USD -> moneda destino
+        tasa = obtener_tasa("USD", codigo)
         if tasa:
             valor = usd * tasa
             conversiones_fiat[nombre] = round(valor, 2)
         else:
             conversiones_fiat[nombre] = "No disponible"
 
-    # --- CRIPTO ---
-    cripto_ids = list(CRYPTO_MAP.values())
-    precios_criptos = obtener_precios_criptos(cripto_ids)
+    cripto_ids = ",".join(CRYPTO_MAP.values())
+    try:
+        url = f"https://api.coingecko.com/api/v3/simple/price?ids={cripto_ids}&vs_currencies=usd"
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        precios_criptos = r.json()
+    except Exception as e:
+        precios_criptos = {}
 
     conversiones_cripto = {}
     for cripto, cripto_id in CRYPTO_MAP.items():
@@ -165,6 +138,8 @@ def convertir_bob(monto_bob: float = Query(1000, description="Monto en boliviano
         "conversiones_cripto": conversiones_cripto,
         "timestamp": datetime.now().isoformat()
     }
+
+# --------- NUEVOS ENDPOINTS ABAJO (todos con BUY) ---------
 
 @app.get("/convertir_bob_moneda")
 def convertir_bob_moneda(moneda: str = Query(...), monto_bob: float = Query(1000)):
@@ -199,21 +174,21 @@ def cambio_a_bob(moneda: str = Query(...), monto: float = Query(1)):
         monto_bob = monto * tc_usd_bob
         return {
             "input": f"{monto} USD",
-            "resultado": round(monto_bob, 2),
+            "output": f"{round(monto_bob, 2)} BOB",
             "tasa_usd_bob": tc_usd_bob,
             "timestamp": datetime.now().isoformat()
         }
     else:
-        tasa = obtener_tasa("USD", moneda)
+        tasa = obtener_tasa(moneda, "USD")
         if not tasa:
-            return {"error": f"No se pudo obtener la tasa USD->{moneda}"}
-        monto_usd = monto / tasa  # Invertimos la operación: monto en moneda / tasa USD->moneda = monto en USD
+            return {"error": f"No se pudo obtener la tasa {moneda}->USD"}
+        monto_usd = monto * tasa
         monto_bob = monto_usd * tc_usd_bob
         return {
             "input": f"{monto} {moneda}",
-            "resultado": round(monto_bob, 2),
+            "output": f"{round(monto_bob, 2)} BOB",
             "tasa_usd_bob": tc_usd_bob,
-            f"tasa_usd_{moneda.lower()}": tasa,
+            f"tasa_{moneda.lower()}_usd": tasa,
             "timestamp": datetime.now().isoformat()
         }
 
@@ -231,12 +206,8 @@ def cambio_bolivianos():
     for cod in monedas:
         if cod == "USD":
             continue
-        tasa = obtener_tasa("USD", cod)  # SIEMPRE USD -> moneda destino
+        tasa = obtener_tasa(cod, "USD")
         if tasa:
             cotizaciones[cod] = round(tc_usd_bob * tasa, 2)
         else:
-            cotizaciones[cod] = "No disponible"
-    return {
-        "cotizaciones_bolivianos": cotizaciones,
-        "timestamp": datetime.now().isoformat()
-    }
+            cot
