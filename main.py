@@ -2,10 +2,11 @@ from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 import requests
 from datetime import datetime, timedelta
+import time
 
-app = FastAPI(title="API Paralelo", version="1.2")
+app = FastAPI(title="API Paralelo", version="1.3")
 
-# CORS para cualquier frontend
+# Habilitar CORS global para cualquier frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -25,7 +26,6 @@ CRYPTO_MAP = {
     "TRUMP": "trumpcoin"
 }
 
-# --- Caché simple en RAM ---
 cache_binance = {"BUY": (None, None)}
 cache_rates = {}
 CACHE_EXP = timedelta(seconds=60)
@@ -79,17 +79,32 @@ def obtener_tasa(base: str, destino: str):
     if entry and (now - entry['ts']) < CACHE_EXP:
         return entry['rate']
     try:
-        url = f"https://open.er-api.com/v6/latest/{base}"
+        url = f"https://api.exchangerate.host/convert?from={base}&to={destino}&amount=1"
         r = requests.get(url, timeout=10)
         r.raise_for_status()
         data = r.json()
-        rate = data['rates'].get(destino)
+        rate = data.get('result', None)
         if rate:
             cache_rates[key] = {"rate": rate, "ts": now}
         return rate
     except Exception as e:
-        print(f"Error API open.er-api.com: {e}")
+        print(f"Error API exchangerate.host: {e}")
         return None
+
+def obtener_precios_criptos(cripto_ids):
+    url = f"https://api.coingecko.com/api/v3/simple/price?ids={','.join(cripto_ids)}&vs_currencies=usd"
+    for intento in range(3):
+        try:
+            r = requests.get(url, timeout=8)
+            r.raise_for_status()
+            data = r.json()
+            if data:
+                return data
+        except Exception as e:
+            if intento == 2:
+                print(f"Error CoinGecko: {e}")
+            time.sleep(0.5)
+    return {}
 
 @app.get("/convertir_bob")
 def convertir_bob(monto_bob: float = Query(1000, description="Monto en bolivianos a convertir")):
@@ -116,6 +131,7 @@ def convertir_bob(monto_bob: float = Query(1000, description="Monto en boliviano
         "MXN": "Peso mexicano"
     }
 
+    # --- FIAT ---
     conversiones_fiat = {}
     for codigo, nombre in monedas.items():
         tasa = obtener_tasa("USD", codigo)
@@ -125,14 +141,9 @@ def convertir_bob(monto_bob: float = Query(1000, description="Monto en boliviano
         else:
             conversiones_fiat[nombre] = "No disponible"
 
-    cripto_ids = ",".join(CRYPTO_MAP.values())
-    try:
-        url = f"https://api.coingecko.com/api/v3/simple/price?ids={cripto_ids}&vs_currencies=usd"
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
-        precios_criptos = r.json()
-    except Exception as e:
-        precios_criptos = {}
+    # --- CRIPTO ---
+    cripto_ids = list(CRYPTO_MAP.values())
+    precios_criptos = obtener_precios_criptos(cripto_ids)
 
     conversiones_cripto = {}
     for cripto, cripto_id in CRYPTO_MAP.items():
