@@ -4,9 +4,9 @@ import requests
 from datetime import datetime, timedelta
 import time
 
-app = FastAPI(title="API Paralelo", version="1.3")
+app = FastAPI(title="API Paralelo", version="1.4")
 
-# Habilitar CORS global para cualquier frontend
+# CORS global para frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -134,7 +134,7 @@ def convertir_bob(monto_bob: float = Query(1000, description="Monto en boliviano
     # --- FIAT ---
     conversiones_fiat = {}
     for codigo, nombre in monedas.items():
-        tasa = obtener_tasa("USD", codigo)
+        tasa = obtener_tasa("USD", codigo)  # SIEMPRE USD -> moneda destino
         if tasa:
             valor = usd * tasa
             conversiones_fiat[nombre] = round(valor, 2)
@@ -204,16 +204,16 @@ def cambio_a_bob(moneda: str = Query(...), monto: float = Query(1)):
             "timestamp": datetime.now().isoformat()
         }
     else:
-        tasa = obtener_tasa(moneda, "USD")
+        tasa = obtener_tasa("USD", moneda)
         if not tasa:
-            return {"error": f"No se pudo obtener la tasa {moneda}->USD"}
-        monto_usd = monto * tasa
+            return {"error": f"No se pudo obtener la tasa USD->{moneda}"}
+        monto_usd = monto / tasa  # Invertimos la operación: monto en moneda / tasa USD->moneda = monto en USD
         monto_bob = monto_usd * tc_usd_bob
         return {
             "input": f"{monto} {moneda}",
             "resultado": round(monto_bob, 2),
             "tasa_usd_bob": tc_usd_bob,
-            f"tasa_{moneda.lower()}_usd": tasa,
+            f"tasa_usd_{moneda.lower()}": tasa,
             "timestamp": datetime.now().isoformat()
         }
 
@@ -231,7 +231,7 @@ def cambio_bolivianos():
     for cod in monedas:
         if cod == "USD":
             continue
-        tasa = obtener_tasa(cod, "USD")
+        tasa = obtener_tasa("USD", cod)  # SIEMPRE USD -> moneda destino
         if tasa:
             cotizaciones[cod] = round(tc_usd_bob * tasa, 2)
         else:
