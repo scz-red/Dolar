@@ -176,6 +176,7 @@ def cambio_a_bob(moneda: str = Query(...), monto: float = Query(1)):
             "input": f"{monto} USD",
             "output": f"{round(monto_bob, 2)} BOB",
             "tasa_usd_bob": tc_usd_bob,
+            "resultado": round(monto_bob, 2),  # <-- agrega aquí
             "timestamp": datetime.now().isoformat()
         }
     else:
@@ -189,6 +190,7 @@ def cambio_a_bob(moneda: str = Query(...), monto: float = Query(1)):
             "output": f"{round(monto_bob, 2)} BOB",
             "tasa_usd_bob": tc_usd_bob,
             f"tasa_{moneda.lower()}_usd": tasa,
+            "resultado": round(monto_bob, 2),  # <-- y aquí
             "timestamp": datetime.now().isoformat()
         }
 
