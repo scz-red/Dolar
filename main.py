@@ -96,7 +96,7 @@ def convertir_bob(monto_bob: float = Query(1000, description="Monto en boliviano
         "BRL": "Real brasileño",
         "PEN": "Sol peruano",
         "PYG": "Guaraní paraguayo",
-        "MXN": "Peso mexicano"
+        "MXN": "Peso mexicano",
         "CNY": "Yuan chino",
     }
 
@@ -210,4 +210,9 @@ def cambio_bolivianos():
         if tasa:
             cotizaciones[cod] = round(tc_usd_bob * tasa, 2)
         else:
-            cot
+            cotizaciones[cod] = "No disponible"
+    return {
+        "cotizaciones": cotizaciones,
+        "timestamp": datetime.now().isoformat()
+    }
+
