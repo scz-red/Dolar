@@ -1,282 +1,219 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Calculadora al Paralelo</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-  <style>
-    :root {
-      --primary: #4356f9;
-      --primary-dark: #23389c;
-      --background: #f8fafc;
-      --white: #fff;
-      --gray: #ececec;
-      --border: #e0e0e0;
-     --shadow: 0 4px 20px rgba(67,86,249,0.08);
-      --radius: 24px;
-    }
-    html, body {
-      margin: 0; padding: 0; box-sizing: border-box;
-      background: var(--background);
-      font-family: 'Inter', Arial, sans-serif;
-    }
-    .main-box {
-      max-width: 420px;
-      margin: 48px auto 32px auto;
-      background: var(--white);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      overflow: hidden;
-    }
-    .hero {
-      background: linear-gradient(135deg, var(--primary), #6c81ff 95%);
-      color: #fff;
-      padding: 38px 30px 18px 30px;
-    }
-    .hero-title {
-      font-size: 2.1rem; font-weight: 700; line-height: 1.1;
-      margin-bottom: 9px;
-      letter-spacing: -1.2px;
-    }
-    .hero-desc {
-      font-size: 1.02rem; font-weight: 400; opacity: 0.93;
-    }
-    .calc {
-      background: var(--white);
-      border-radius: 0 0 var(--radius) var(--radius);
-      padding: 30px 24px 16px 24px;
-      box-shadow: var(--shadow);
-    }
-    .input-row {
-      display: flex;
-      gap: 12px;
-      margin-bottom: 20px;
-    }
-    .input-row input {
-      flex: 1 1 0; font-size: 1.5rem;
-      border: 1.5px solid var(--border);
-      border-radius: 12px;
-      padding: 10px 16px;
-      outline: none;
-      transition: border 0.2s;
-    }
-    .input-row input:focus { border: 1.5px solid var(--primary); }
-    .input-row button {
-      background: var(--primary);
-      color: #fff;
-      border: none;
-      font-weight: 600;
-      padding: 0 18px;
-      font-size: 1.1rem;
-      border-radius: 12px;
-      cursor: pointer;
-      transition: background 0.16s;
-    }
-    .input-row button:active { background: var(--primary-dark); }
-    .res-row {
-      display: flex;
-      gap: 18px;
-      margin-bottom: 12px;
-      justify-content: center;
-    }
-    .res-card {
-      background: var(--gray);
-      padding: 16px 20px;
-      border-radius: 18px;
-      flex: 1 1 0;
-      text-align: center;
-      box-shadow: 0 1px 6px rgba(67,86,249,0.04);
-    }
-    .res-label {
-      font-size: 1rem;
-      font-weight: 500;
-      color: #485;
-      letter-spacing: .04em;
-      opacity: .92;
-      margin-bottom: 2px;
-    }
-    .res-value {
-      font-size: 1.5rem; font-weight: 700; color: var(--primary);
-      letter-spacing: .02em;
-    }
-    .section {
-      margin: 16px 0 0 0;
-      padding: 0 22px 0 22px;
-    }
-    .section-title {
-      font-weight: 700; font-size: 1.13rem; color: var(--primary);
-      margin-bottom: 6px;
-      display: flex; align-items: center; gap: 7px;
-    }
-    .list {
-      background: var(--white);
-      border-radius: 18px;
-      box-shadow: 0 2px 10px rgba(70,80,220,0.06);
-      margin-bottom: 18px;
-    }
-    .item {
-      display: flex; align-items: center;
-      border-bottom: 1px solid var(--gray);
-      padding: 12px 9px;
-      font-size: 1.09rem;
-    }
-    .item:last-child { border-bottom: none; }
-    .item .icon {
-      width: 38px; height: 38px;
-      border-radius: 8px;
-      margin-right: 17px;
-      object-fit: contain;
-      background: #f4f7fc;
-      border: 1.5px solid #dde4f0;
-    }
-    .item-details {
-      flex: 1 1 0;
-      min-width: 0;
-    }
-    .item-label {
-      font-weight: 600;
-      font-size: 1.06rem;
-      color: #191929;
-    }
-    .item-code {
-      font-size: .94rem; color: #888;
-    }
-    .item-value {
-      font-weight: 700; color: var(--primary-dark);
-      font-size: 1.08rem;
-      text-align: right;
-      min-width: 84px;
-    }
-    @media (max-width: 600px) {
-      .main-box { max-width: 99vw; margin: 18px 0; }
-      .hero { padding: 25px 10px 13px 10px; }
-      .calc { padding: 19px 7px 12px 7px; }
-      .section { padding: 0 6px; }
-    }
-  </style>
-</head>
-<body>
-  <div class="main-box">
-    <div class="hero">
-      <div class="hero-title">Calculadora al Paralelo</div>
-      <div class="hero-desc">Convierte BOB a diferentes monedas al instante</div>
-    </div>
-    <div class="calc">
-      <div class="input-row">
-        <input type="number" id="montoInput" placeholder="Monto en BOB" value="1000" min="0" step="any" autocomplete="off" />
-      </div>
-      <div class="res-row">
-        <div class="res-card">
-          <div class="res-label">USD/BOB</div>
-          <div class="res-value" id="usdBob">-</div>
-        </div>
-        <div class="res-card">
-          <div class="res-label">EUR/BOB</div>
-          <div class="res-value" id="eurBob">-</div>
-        </div>
-      </div>
-    </div>
-    <div class="section">
-      <div class="section-title"><img src="https://img.icons8.com/color/36/money.png" width="26" style="margin-right:6px;vertical-align:-6px">Monedas tradicionales</div>
-      <div class="list" id="fiatList"></div>
-      <div class="section-title" style="margin-top:16px;"><img src="https://img.icons8.com/color/36/blockchain-new.png" width="26" style="margin-right:6px;vertical-align:-6px">Criptomonedas</div>
-      <div class="list" id="cryptoList"></div>
-    </div>
-  </div>
-  <script>
-const fiatCurrencies = {
-  "Dólar estadounidense": { code: "USD", icon: "https://currencyfreaks.com/photos/flags/usd.png" },
-  "Euro": { code: "EUR", icon: "https://currencyfreaks.com/photos/flags/eur.png" },
-  "Peso colombiano": { code: "COP", icon: "https://currencyfreaks.com/photos/flags/cop.png" },
-  "Peso argentino": { code: "ARS", icon: "https://currencyfreaks.com/photos/flags/ars.png" },
-  "Peso chileno": { code: "CLP", icon: "https://currencyfreaks.com/photos/flags/clp.png" },
-  "Real brasileño": { code: "BRL", icon: "https://currencyfreaks.com/photos/flags/brl.png" },
-  "Sol peruano": { code: "PEN", icon: "https://currencyfreaks.com/photos/flags/pen.png" },
-  "Yuan chino": { code: "CNY", icon: "https://currencyfreaks.com/photos/flags/cny.png" },
-  "Guaraní paraguayo": { code: "PYG", icon: "https://currencyfreaks.com/photos/flags/pyg.png" },
-  "Peso mexicano": { code: "MXN", icon: "https://currencyfreaks.com/photos/flags/mxn.png" }
-};
-const cryptoCurrencies = [
-  { name: "Tether (USDT)", code: "USDT", icon: "paralelo/1.png" },
-  { name: "Bitcoin", code: "BTC", icon: "paralelo/2.png" },
-  { name: "Ethereum", code: "ETH", icon: "paralelo/3.png" },
-  { name: "USD Coin", code: "USDC", icon: "paralelo/4.png" },
-  { name: "Dogecoin", code: "DOGE", icon: "paralelo/5.png" },
-  { name: "Solana", code: "SOL", icon: "paralelo/6.png" },
-  { name: "Pepe", code: "PEPE", icon: "paralelo/7.png" },
-  { name: "Trump", code: "TRUMP", icon: "paralelo/8.png" }
-];
-const montoInput = document.getElementById('montoInput');
-const fiatList = document.getElementById('fiatList');
-const cryptoList = document.getElementById('cryptoList');
-const usdBob = document.getElementById('usdBob');
-const eurBob = document.getElementById('eurBob');
-const API_URL = 'https://api.lupo.lat/convertir_bob?monto_bob=';
-const CACHE_MINUTES = 2;
+from fastapi import FastAPI, Query
+from fastapi.middleware.cors import CORSMiddleware
+import requests
+from datetime import datetime
 
-function setCache(monto, data) {
-  localStorage.setItem('calcCache_' + monto, JSON.stringify({
-    data, timestamp: Date.now()
-  }));
-}
-function getCache(monto) {
-  const val = localStorage.getItem('calcCache_' + monto);
-  if (!val) return null;
-  try {
-    const obj = JSON.parse(val);
-    if (Date.now() - obj.timestamp < CACHE_MINUTES * 60 * 1000) return obj.data;
-  } catch (e) {}
-  return null;
+app = FastAPI()
+
+# CORS público, compatible con cualquier frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Permite todos los orígenes (API pública)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+CRYPTO_MAP = {
+    "USDT": "tether",
+    "BTC": "bitcoin",
+    "ETH": "ethereum",
+    "USDC": "usd-coin",
+    "DOGE": "dogecoin",
+    "SOL": "solana",
+    "PEPE": "pepe",
+    "TRUMP": "trumpcoin"
 }
 
-function formatNumber(n) {
-  if (n === null || n === undefined) return '-';
-  if (typeof n === 'number') n = n.toFixed(2);
-  return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.').replace('.', ',');
-}
-
-async function calcular() {
-  let monto = +montoInput.value;
-  if (!monto || monto < 0) monto = 0;
-  let data = getCache(monto);
-  if (!data) {
-    try {
-      const resp = await fetch(API_URL + monto);
-      data = await resp.json();
-      setCache(monto, data);
-    } catch {
-      fiatList.innerHTML = '<div style="padding:18px;">Error de red/API</div>';
-      cryptoList.innerHTML = '';
-      usdBob.textContent = eurBob.textContent = '-';
-      return;
+def obtener_promedio(direccion: str):
+    url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0"
     }
-  }
-  // Mostrar USD/BOB, EUR/BOB
-  usdBob.textContent = data.conversiones_fiat && data.conversiones_fiat["Dólar estadounidense"]
-    ? formatNumber(data.conversiones_fiat["Dólar estadounidense"]) : '-';
-  eurBob.textContent = data.conversiones_fiat && data.conversiones_fiat["Euro"]
-    ? formatNumber(data.conversiones_fiat["Euro"]) : '-';
-  // Listar monedas tradicionales
-  fiatList.innerHTML = '';
-  if (data.conversiones_fiat) {
-    Object.entries(fiatCurrencies).forEach(([name, val]) => {
-      let amount = data.conversiones_fiat[name];
-      fiatList.innerHTML += `<div class="item"><img class="icon" src="${val.icon}" alt="${val.code}"><div class="item-details"><div class="item-label">${name}</div><div class="item-code">${val.code}</div></div><div class="item-value">${formatNumber(amount)}</div></div>`;
-    });
-  }
-  // Listar cripto
-  cryptoList.innerHTML = '';
-  if (data.conversiones_cripto) {
-    cryptoCurrencies.forEach(obj => {
-      let val = data.conversiones_cripto[obj.name] || data.conversiones_cripto[obj.code] || 0;
-      cryptoList.innerHTML += `<div class="item"><img class="icon" src="${obj.icon}" alt="${obj.code}"><div class="item-details"><div class="item-label">${obj.name}</div><div class="item-code">${obj.code}</div></div><div class="item-value">${formatNumber(val)}</div></div>`;
-    });
-  }
-}
+    data = {
+        "asset": "USDT",
+        "fiat": "BOB",
+        "tradeType": direccion,
+        "page": 1,
+        "rows": 10,
+        "payTypes": [],
+        "publisherType": None
+    }
+    try:
+        response = requests.post(url, headers=headers, json=data, timeout=10)
+        response.raise_for_status()
+        anuncios = response.json().get("data", [])
+    except Exception as e:
+        return {"error": f"Error al consultar Binance: {str(e)}"}
 
-montoInput.addEventListener('input', () => calcular());
-window.addEventListener('DOMContentLoaded', () => calcular());
-  </script>
-</body>
-</html>
+    precios_validos = []
+    for anuncio in anuncios:
+        adv = anuncio.get("adv", {})
+        min_trans = adv.get("minSingleTransAmount", 0)
+        if min_trans and float(min_trans) > 2000:
+            continue
+        precio = float(adv.get("price", 0))
+        precios_validos.append(precio)
+        if len(precios_validos) >= 5:
+            break
+
+    if not precios_validos:
+        return {"error": "No hay suficientes anuncios válidos."}
+
+    promedio = sum(precios_validos) / len(precios_validos)
+    return {"promedio_bs": round(promedio, 2), "anuncios_validos": len(precios_validos)}
+
+def obtener_tasa(base: str, destino: str):
+    try:
+        url = f"https://open.er-api.com/v6/latest/{base}"
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        return data['rates'].get(destino)
+    except Exception as e:
+        print(f"Error API open.er-api.com: {e}")
+        return None
+
+@app.get("/convertir_bob")
+def convertir_bob(monto_bob: float = Query(1000, description="Monto en bolivianos a convertir")):
+    resultado_promedio = obtener_promedio("BUY")
+    if "error" in resultado_promedio:
+        return {"error": resultado_promedio["error"]}
+
+    tc_bob_usd = resultado_promedio.get("promedio_bs")
+    if not tc_bob_usd:
+        return {"error": "No se pudo obtener tipo de cambio paralelo."}
+
+    usd = monto_bob / tc_bob_usd
+
+    monedas = {
+        "USD": "Dólar estadounidense",
+        "EUR": "Euro",
+        "COP": "Peso colombiano",
+        "ARS": "Peso argentino",
+        "CLP": "Peso chileno",
+        "BRL": "Real brasileño",
+        "PEN": "Sol peruano",
+        "PYG": "Guaraní paraguayo",
+        "MXN": "Peso mexicano",
+        "CNY": "Yuan chino",
+    }
+
+    conversiones_fiat = {}
+    for codigo, nombre in monedas.items():
+        tasa = obtener_tasa("USD", codigo)
+        if tasa:
+            valor = usd * tasa
+            conversiones_fiat[nombre] = round(valor, 2)
+        else:
+            conversiones_fiat[nombre] = "No disponible"
+
+    cripto_ids = ",".join(CRYPTO_MAP.values())
+    try:
+        url = f"https://api.coingecko.com/api/v3/simple/price?ids={cripto_ids}&vs_currencies=usd"
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        precios_criptos = r.json()
+    except Exception as e:
+        precios_criptos = {}
+
+    conversiones_cripto = {}
+    for cripto, cripto_id in CRYPTO_MAP.items():
+        if cripto == "USDT":
+            conversiones_cripto["Tether (USDT)"] = round(usd, 2)
+        else:
+            precio = precios_criptos.get(cripto_id, {}).get("usd")
+            if precio:
+                valor = usd / precio
+                conversiones_cripto[cripto] = round(valor, 6)
+            else:
+                conversiones_cripto[cripto] = "No disponible"
+
+    return {
+        "monto_bob": monto_bob,
+        "tc_bob_usd": tc_bob_usd,
+        "monto_usd": round(usd, 2),
+        "conversiones_fiat": conversiones_fiat,
+        "conversiones_cripto": conversiones_cripto,
+        "timestamp": datetime.now().isoformat()
+    }
+
+# --------- NUEVOS ENDPOINTS ABAJO (todos con BUY) ---------
+
+@app.get("/convertir_bob_moneda")
+def convertir_bob_moneda(moneda: str = Query(...), monto_bob: float = Query(1000)):
+    moneda = moneda.upper()
+    resultado_promedio = obtener_promedio("BUY")
+    if "error" in resultado_promedio:
+        return {"error": resultado_promedio["error"]}
+    tc_bob_usd = resultado_promedio.get("promedio_bs")
+    usd = monto_bob / tc_bob_usd
+    if moneda == "USD":
+        valor = usd
+    else:
+        tasa = obtener_tasa("USD", moneda)
+        if not tasa:
+            return {"error": f"No se pudo obtener la tasa USD->{moneda}"}
+        valor = usd * tasa
+    return {
+        "input": f"{monto_bob} BOB",
+        "output": f"{round(valor, 2)} {moneda}",
+        "tc_bob_usd": tc_bob_usd,
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.get("/cambio_a_bob")
+def cambio_a_bob(moneda: str = Query(...), monto: float = Query(1)):
+    moneda = moneda.upper()
+    resultado_promedio = obtener_promedio("BUY")
+    if "error" in resultado_promedio:
+        return {"error": resultado_promedio["error"]}
+    tc_usd_bob = resultado_promedio.get("promedio_bs")
+    if moneda == "USD":
+        monto_bob = monto * tc_usd_bob
+        return {
+            "input": f"{monto} USD",
+            "output": f"{round(monto_bob, 2)} BOB",
+            "tasa_usd_bob": tc_usd_bob,
+            "resultado": round(monto_bob, 2),  # <-- agrega aquí
+            "timestamp": datetime.now().isoformat()
+        }
+    else:
+        tasa = obtener_tasa(moneda, "USD")
+        if not tasa:
+            return {"error": f"No se pudo obtener la tasa {moneda}->USD"}
+        monto_usd = monto * tasa
+        monto_bob = monto_usd * tc_usd_bob
+        return {
+            "input": f"{monto} {moneda}",
+            "output": f"{round(monto_bob, 2)} BOB",
+            "tasa_usd_bob": tc_usd_bob,
+            f"tasa_{moneda.lower()}_usd": tasa,
+            "resultado": round(monto_bob, 2),  # <-- y aquí
+            "timestamp": datetime.now().isoformat()
+        }
+
+@app.get("/cambio_bolivianos")
+def cambio_bolivianos():
+    monedas = [
+        "USD", "EUR", "COP", "ARS", "CLP",
+        "BRL", "PEN", "CNY", "PYG", "MXN"
+    ]
+    resultado_promedio = obtener_promedio("BUY")
+    if "error" in resultado_promedio:
+        return {"error": resultado_promedio["error"]}
+    tc_usd_bob = resultado_promedio.get("promedio_bs")
+    cotizaciones = {"USD": round(tc_usd_bob, 2)}
+    for cod in monedas:
+        if cod == "USD":
+            continue
+        tasa = obtener_tasa(cod, "USD")
+        if tasa:
+            cotizaciones[cod] = round(tc_usd_bob * tasa, 2)
+        else:
+            cotizaciones[cod] = "No disponible"
+    return {
+        "cotizaciones": cotizaciones,
+        "timestamp": datetime.now().isoformat()
+    }
