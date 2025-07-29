@@ -13,7 +13,7 @@
       --white: #fff;
       --gray: #ececec;
       --border: #e0e0e0;
-      --shadow: 0 4px 20px rgba(67,86,249,0.08);
+     --shadow: 0 4px 20px rgba(67,86,249,0.08);
       --radius: 24px;
     }
     html, body {
