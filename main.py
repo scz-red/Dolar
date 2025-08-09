@@ -66,7 +66,7 @@ def obtener_promedio(direccion: str):
         return {"error": "No hay suficientes anuncios válidos."}
 
     promedio = sum(precios_validos) / len(precios_validos)
-    return {"promedio_bs": round(promedio, 2), "anuncios_validos": len(precios_validos)}
+    return {"promedio_bs": round(promedio, 4), "anuncios_validos": len(precios_validos)}
 
 # ---------------- AJUSTE: USD -> Otras monedas con Yahoo Finance (fallback a open.er-api) ----------------
 def obtener_tasa(base: str, destino: str):
