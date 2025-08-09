@@ -65,7 +65,7 @@ class FiatRateManager:
     
     def _init_rates(self):
         self.adjustment_factors = {
-            "COP": Decimal("0.991"),  # 2% de ajuste para COP
+            "COP": Decimal("0.993"),  # 2% de ajuste para COP
             "ARS": Decimal("1.61"),  # 5% de ajuste para ARS
             "CLP": Decimal("1.71"),
             "BRL": Decimal("1.055"),
