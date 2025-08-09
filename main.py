@@ -3,8 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 import requests
 from datetime import datetime
 from decimal import Decimal, getcontext
+from typing import Dict, List, Optional
+import time
 
-getcontext().prec = 12  # mayor precisión interna para evitar diferencias por redondeo
+getcontext().prec = 12  # precisión interna
 
 app = FastAPI()
 
@@ -28,7 +30,75 @@ CRYPTO_MAP = {
     "TRUMP": "trumpcoin"
 }
 
-# ---------------- NO TOCAR: USD/BOB desde Binance P2P (tu lógica original) ----------------
+# ================== FX (Yahoo bulk + fallback) ==================
+YF_URL = "https://query1.finance.yahoo.com/v7/finance/quote"
+# Cache simple para todas las tasas pedidas en una ventana corta
+_fx_cache: Dict[str, object] = {"t": 0.0, "rates": {}}  # {"t": epoch, "rates": {"USD":1.0,"EUR":0.92,...}}
+
+def yf_bulk_rates_usd(codes: List[str], ttl: int = 120) -> Dict[str, Optional[float]]:
+    """Obtiene USD->code para una lista de códigos en **un solo request**.
+       Usa caché de ttl segundos para coherencia en la misma respuesta."""
+    now = time.time()
+    # Si ya tenemos las tasas y no expiraron, devuélvelas filtradas
+    if _fx_cache["rates"] and (now - _fx_cache["t"] <= ttl):
+        return {c: _fx_cache["rates"].get(c) for c in codes}
+
+    symbols = []
+    for c in codes:
+        if c.upper() != "USD":
+            symbols.append(f"USD{c.upper()}=X")
+
+    rates: Dict[str, Optional[float]] = {"USD": 1.0}
+    if symbols:
+        r = requests.get(YF_URL, params={"symbols": ",".join(symbols)}, timeout=10)
+        r.raise_for_status()
+        results = r.json().get("quoteResponse", {}).get("result", [])
+        by_symbol = {it.get("symbol"): it for it in results}
+        for c in codes:
+            cu = c.upper()
+            if cu == "USD":
+                rates["USD"] = 1.0
+                continue
+            sym = f"USD{cu}=X"
+            px = by_symbol.get(sym, {}).get("regularMarketPrice")
+            rates[cu] = float(px) if px is not None else None
+    # guarda en caché
+    _fx_cache["t"] = now
+    _fx_cache["rates"] = rates.copy()
+    return {c: rates.get(c.upper()) for c in codes}
+
+def obtener_tasa(base: str, destino: str) -> Optional[float]:
+    """Devuelve tasa base->destino. Prioriza Yahoo (bulk), fallback a open.er-api."""
+    base = base.upper()
+    destino = destino.upper()
+    if base == destino:
+        return 1.0
+
+    # 1) Intento con snapshot Yahoo (bulk)
+    if base == "USD":
+        r = yf_bulk_rates_usd([destino]).get(destino)
+        if r: return r
+    elif destino == "USD":
+        r = yf_bulk_rates_usd([base]).get(base)
+        if r: return float(Decimal(1) / Decimal(str(r)))
+    else:
+        r_base = yf_bulk_rates_usd([base]).get(base)       # USD->base
+        r_dest = yf_bulk_rates_usd([destino]).get(destino) # USD->dest
+        if r_base and r_dest:
+            # base->dest = (USD->dest) / (USD->base)
+            return float(Decimal(str(r_dest)) / Decimal(str(r_base)))
+
+    # 2) Fallback open.er-api.com
+    try:
+        url = f"https://open.er-api.com/v6/latest/{base}"
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        return data["rates"].get(destino)
+    except Exception:
+        return None
+
+# ================== NO TOCAR: USD/BOB desde Binance P2P (tu lógica) ==================
 def obtener_promedio(direccion: str):
     url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
     headers = {
@@ -66,58 +136,10 @@ def obtener_promedio(direccion: str):
         return {"error": "No hay suficientes anuncios válidos."}
 
     promedio = sum(precios_validos) / len(precios_validos)
-    return {"promedio_bs": round(promedio, 4), "anuncios_validos": len(precios_validos)}
+    # Mantengo tu redondeo original a 2 decimales
+    return {"promedio_bs": round(promedio, 2), "anuncios_validos": len(precios_validos)}
 
-# ---------------- AJUSTE: USD -> Otras monedas con Yahoo Finance (fallback a open.er-api) ----------------
-def obtener_tasa(base: str, destino: str):
-    base = base.upper()
-    destino = destino.upper()
-    if base == destino:
-        return 1.0
-
-    def yf_usd_to(code: str):
-        """Retorna USD->code desde Yahoo Finance como Decimal, o None si falla."""
-        try:
-            if code == "USD":
-                return Decimal(1)
-            sym = f"USD{code}=X"
-            url = "https://query1.finance.yahoo.com/v7/finance/quote"
-            r = requests.get(url, params={"symbols": sym}, timeout=10)
-            r.raise_for_status()
-            res = r.json().get("quoteResponse", {}).get("result", [])
-            px = res[0].get("regularMarketPrice") if res else None
-            return Decimal(str(px)) if px else None
-        except Exception:
-            return None
-
-    # Casos directos con USD como base o destino
-    if base == "USD":
-        r = yf_usd_to(destino)
-        if r:
-            return float(r)
-
-    if destino == "USD":
-        r = yf_usd_to(base)
-        if r:
-            return float(Decimal(1) / r)
-
-    # Cruce vía USD: base->USD->destino = (1 / (USD->base)) * (USD->destino)
-    r_base = yf_usd_to(base)
-    r_dest = yf_usd_to(destino)
-    if r_base and r_dest:
-        return float(r_dest / r_base)
-
-    # Fallback (tu fuente anterior)
-    try:
-        url = f"https://open.er-api.com/v6/latest/{base}"
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-        return data['rates'].get(destino)
-    except Exception:
-        return None
-
-# --------------------------------- ENDPOINTS (SIN CAMBIOS) ---------------------------------
+# ================== ENDPOINTS (sin cambios) ==================
 @app.get("/convertir_bob")
 def convertir_bob(monto_bob: float = Query(1000, description="Monto en bolivianos a convertir")):
     resultado_promedio = obtener_promedio("BUY")
@@ -143,22 +165,23 @@ def convertir_bob(monto_bob: float = Query(1000, description="Monto en boliviano
         "CNY": "Yuan chino",
     }
 
+    # Yahoo bulk para coherencia en todas las monedas
+    codes = list(monedas.keys())
+    rates = yf_bulk_rates_usd(codes)  # USD->code en un solo snapshot
+
     conversiones_fiat = {}
     for codigo, nombre in monedas.items():
-        tasa = obtener_tasa("USD", codigo)
-        if tasa:
-            valor = usd * tasa
-            conversiones_fiat[nombre] = round(valor, 2)
-        else:
-            conversiones_fiat[nombre] = "No disponible"
+        tasa = rates.get(codigo)
+        conversiones_fiat[nombre] = round(usd * tasa, 2) if tasa else "No disponible"
 
+    # Cripto
     cripto_ids = ",".join(CRYPTO_MAP.values())
     try:
         url = f"https://api.coingecko.com/api/v3/simple/price?ids={cripto_ids}&vs_currencies=usd"
         r = requests.get(url, timeout=10)
         r.raise_for_status()
         precios_criptos = r.json()
-    except Exception as e:
+    except Exception:
         precios_criptos = {}
 
     conversiones_cripto = {}
@@ -167,11 +190,7 @@ def convertir_bob(monto_bob: float = Query(1000, description="Monto en boliviano
             conversiones_cripto["Tether (USDT)"] = round(usd, 2)
         else:
             precio = precios_criptos.get(cripto_id, {}).get("usd")
-            if precio:
-                valor = usd / precio
-                conversiones_cripto[cripto] = round(valor, 6)
-            else:
-                conversiones_cripto[cripto] = "No disponible"
+            conversiones_cripto[cripto] = round(usd / precio, 6) if precio else "No disponible"
 
     return {
         "monto_bob": monto_bob,
@@ -182,7 +201,6 @@ def convertir_bob(monto_bob: float = Query(1000, description="Monto en boliviano
         "timestamp": datetime.now().isoformat()
     }
 
-# --------- NUEVOS ENDPOINTS ABAJO (todos con BUY) ---------
 @app.get("/convertir_bob_moneda")
 def convertir_bob_moneda(moneda: str = Query(...), monto_bob: float = Query(1000)):
     moneda = moneda.upper()
@@ -246,15 +264,20 @@ def cambio_bolivianos():
     if "error" in resultado_promedio:
         return {"error": resultado_promedio["error"]}
     tc_usd_bob = resultado_promedio.get("promedio_bs")
+
+    # USD->code (Yahoo bulk) para un snapshot coherente
+    rates = yf_bulk_rates_usd(monedas)
     cotizaciones = {"USD": round(tc_usd_bob, 2)}
     for cod in monedas:
         if cod == "USD":
             continue
-        tasa = obtener_tasa(cod, "USD")
-        if tasa:
-            cotizaciones[cod] = round(tc_usd_bob * tasa, 2)
+        tasa_usd_a_cod = rates.get(cod)  # USD->cod
+        if tasa_usd_a_cod:
+            # BOB por 1 unidad de 'cod' = (BOB por USD) / (USD->cod)
+            cotizaciones[cod] = round(tc_usd_bob / tasa_usd_a_cod, 2)
         else:
             cotizaciones[cod] = "No disponible"
+
     return {
         "cotizaciones": cotizaciones,
         "timestamp": datetime.now().isoformat()
