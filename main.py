@@ -30,12 +30,13 @@ CRYPTO_MAP = {
     "TRUMP": "trumpcoin",
 }
 
-# ================== Helpers de formato ==================
+# ====== helpers de formato ======
 CURRENCY_DECIMALS = {
     "USD": 2, "EUR": 2, "COP": 2, "ARS": 2, "CLP": 0,
     "BRL": 2, "PEN": 2, "PYG": 0, "MXN": 2, "CNY": 2,
 }
-RATE_Q = Decimal("0.0001")  # 4 decimales en la TASA
+RATE_Q = Decimal("0.0001")  # 4 decimales para la TASA
+
 def fmt_amount(code: str, amount: Decimal):
     d = CURRENCY_DECIMALS.get(code.upper(), 2)
     q = Decimal(1).scaleb(-d)
@@ -48,20 +49,20 @@ def _safe_float(x) -> Optional[float]:
     except Exception:
         return None
 
-# ================== FX (Yahoo bulk + fallback) ==================
+# ====== FX (Yahoo bulk + fallback controlado) ======
 YF_URL = "https://query1.finance.yahoo.com/v7/finance/quote"
 ER_URL = "https://open.er-api.com/v6/latest/"
 
-_fx_cache: Dict[str, object] = {"t": 0.0, "rates": {}}  # {"USD":1.0,"EUR":0.92,...}
+_fx_cache: Dict[str, object] = {"t": 0.0, "rates": {}}  # {"USD":Decimal(1), "EUR":Decimal(...), ...}
 
 def yf_bulk_rates_usd(codes: List[str], ttl: int = 120) -> Dict[str, Optional[Decimal]]:
     """
-    Devuelve USD->code para la lista codes en un solo request.
-    Tasa redondeada a 4 decimales. Usa caché corta. Nunca lanza excepción.
+    Devuelve USD->code para 'codes' en un solo request.
+    Prefiere cierre (regularMarketPreviousClose); si no, último (regularMarketPrice).
+    Redondea tasa a 4 decimales. Usa caché corta. Nunca lanza excepción.
     """
     now = time.time()
     if _fx_cache["rates"] and (now - _fx_cache["t"] <= ttl):
-        # devuelve copia filtrada
         return {c: _fx_cache["rates"].get(c.upper()) for c in codes}
 
     rates: Dict[str, Optional[Decimal]] = {"USD": Decimal(1)}
@@ -79,9 +80,9 @@ def yf_bulk_rates_usd(codes: List[str], ttl: int = 120) -> Dict[str, Optional[De
                     rates["USD"] = Decimal(1)
                     continue
                 sym = f"USD{cu}=X"
-                px = by_symbol.get(sym, {}).get("regularMarketPrice")
+                item = by_symbol.get(sym, {})
+                px = item.get("regularMarketPreviousClose") or item.get("regularMarketPrice")
                 if px is not None:
-                    # tasa con 4 decimales
                     rates[cu] = Decimal(str(px)).quantize(RATE_Q, rounding=ROUND_HALF_UP)
                 else:
                     rates[cu] = None
@@ -95,7 +96,7 @@ def yf_bulk_rates_usd(codes: List[str], ttl: int = 120) -> Dict[str, Optional[De
     return {c: rates.get(c.upper()) for c in codes}
 
 def er_rate_usd_to(code: str) -> Optional[Decimal]:
-    """Fallback: USD->code desde open.er-api.com, redondeado a 4 decimales."""
+    """Fallback: USD->code desde open.er-api.com; redondeo a 4 decimales."""
     try:
         r = requests.get(ER_URL + "USD", timeout=10)
         r.raise_for_status()
@@ -106,31 +107,39 @@ def er_rate_usd_to(code: str) -> Optional[Decimal]:
 
 def obtener_tasa(base: str, destino: str) -> Optional[float]:
     """
-    Tasa base->destino. Prioriza Yahoo (bulk snapshot) y, si falta, cae a open.er-api.
-    Internamente usa Decimal y redondea la TASA a 4 decimales.
+    Devuelve tasa base->destino. Prioriza Yahoo (bulk). Para COP, si Yahoo respondió,
+    NO cae a ER para mantener consistencia con lo que ves en Yahoo.
     """
     base = base.upper()
     destino = destino.upper()
     if base == destino:
         return 1.0
 
+    def usd_to(code: str) -> Optional[Decimal]:
+        t = yf_bulk_rates_usd([code]).get(code)
+        if code == "COP":
+            # Para COP, si Yahoo dio algo, úsalo y no caigas a ER
+            return t if t else er_rate_usd_to(code)
+        # Para otras, usa Yahoo y si falta, ER
+        return t or er_rate_usd_to(code)
+
     if base == "USD":
-        t = yf_bulk_rates_usd([destino]).get(destino) or er_rate_usd_to(destino)
+        t = usd_to(destino)
         return float(t) if t else None
 
     if destino == "USD":
-        t = yf_bulk_rates_usd([base]).get(base) or er_rate_usd_to(base)  # USD->base
+        t = usd_to(base)  # USD->base
         return float((Decimal(1) / t).quantize(RATE_Q, rounding=ROUND_HALF_UP)) if t else None
 
-    # Cruce vía USD: (USD->dest) / (USD->base)
-    t_base = yf_bulk_rates_usd([base]).get(base) or er_rate_usd_to(base)
-    t_dest = yf_bulk_rates_usd([destino]).get(destino) or er_rate_usd_to(destino)
+    # Cruce: (USD->dest) / (USD->base)
+    t_base = usd_to(base)
+    t_dest = usd_to(destino)
     if t_base and t_dest:
         cross = (t_dest / t_base).quantize(RATE_Q, rounding=ROUND_HALF_UP)
         return float(cross)
     return None
 
-# ================== NO TOCAR: USD/BOB desde Binance P2P ==================
+# ====== NO TOCAR: USD/BOB desde Binance P2P ======
 def obtener_promedio(direccion: str):
     url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
     headers = {"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
@@ -166,10 +175,9 @@ def obtener_promedio(direccion: str):
         return {"error": "No hay suficientes anuncios válidos."}
 
     promedio = sum(precios_validos) / len(precios_validos)
-    # Mantengo 2 decimales como tenías
     return {"promedio_bs": round(promedio, 2), "anuncios_validos": len(precios_validos)}
 
-# ================== ENDPOINTS (sin cambios) ==================
+# ====== ENDPOINTS (sin cambios) ======
 @app.get("/convertir_bob")
 def convertir_bob(monto_bob: float = Query(1000, description="Monto en bolivianos a convertir")):
     resultado_promedio = obtener_promedio("BUY")
@@ -195,24 +203,26 @@ def convertir_bob(monto_bob: float = Query(1000, description="Monto en boliviano
         "CNY": "Yuan chino",
     }
 
-    # Snapshot coherente para todas las monedas
     codes = list(monedas.keys())
     rates = yf_bulk_rates_usd(codes)
 
     conversiones_fiat = {}
     for codigo, nombre in monedas.items():
-        t = rates.get(codigo) or er_rate_usd_to(codigo)
+        t = rates.get(codigo)
+        if t is None:
+            t = er_rate_usd_to(codigo) if codigo != "COP" else None  # COP no fuerza ER si faltó
         if not t:
             conversiones_fiat[nombre] = "No disponible"
             continue
-        valor = usd_dec * t  # USD -> moneda, tasa ya con 4 decimales
+        valor = usd_dec * t  # USD -> moneda
         conversiones_fiat[nombre] = fmt_amount(codigo, valor)
 
     # Cripto (CoinGecko)
     cripto_ids = ",".join(CRYPTO_MAP.values())
     try:
-        url = f"https://api.coingecko.com/api/v3/simple/price?ids={cripto_ids}&vs_currencies=usd"
-        r = requests.get(url, timeout=10)
+        url = f"https://api.coingecko.com/api/v3/simple/price"
+        headers = {"User-Agent": "paralelo-bob/1.0 (+contacto)"}
+        r = requests.get(url, params={"ids": cripto_ids, "vs_currencies": "usd"}, headers=headers, timeout=15)
         r.raise_for_status()
         precios_criptos = r.json()
     except Exception:
@@ -224,7 +234,11 @@ def convertir_bob(monto_bob: float = Query(1000, description="Monto en boliviano
             conversiones_cripto["Tether (USDT)"] = fmt_amount("USD", usd_dec)
         else:
             px = precios_criptos.get(cripto_id, {}).get("usd")
-            conversiones_cripto[cripto] = float((usd_dec / Decimal(str(px))).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)) if px else "No disponible"
+            if px:
+                val = (usd_dec / Decimal(str(px))).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+                conversiones_cripto[cripto] = float(val)
+            else:
+                conversiones_cripto[cripto] = "No disponible"
 
     return {
         "monto_bob": monto_bob,
@@ -302,9 +316,11 @@ def cambio_bolivianos():
     for cod in monedas:
         if cod == "USD":
             continue
-        t = rates.get(cod) or er_rate_usd_to(cod)  # USD->cod
+        t = rates.get(cod)
+        if t is None:
+            t = er_rate_usd_to(cod) if cod != "COP" else None
         if t:
-            bob_por_cod = tc_usd_bob / t
+            bob_por_cod = tc_usd_bob / t  # BOB por 1 unidad de 'cod'
             cotizaciones[cod] = fmt_amount(cod, bob_por_cod)
         else:
             cotizaciones[cod] = "No disponible"
