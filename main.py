@@ -2,6 +2,9 @@ from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 import requests
 from datetime import datetime
+from decimal import Decimal, getcontext
+
+getcontext().prec = 12  # mayor precisión interna para evitar diferencias por redondeo
 
 app = FastAPI()
 
@@ -25,6 +28,7 @@ CRYPTO_MAP = {
     "TRUMP": "trumpcoin"
 }
 
+# ---------------- NO TOCAR: USD/BOB desde Binance P2P (tu lógica original) ----------------
 def obtener_promedio(direccion: str):
     url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
     headers = {
@@ -64,17 +68,56 @@ def obtener_promedio(direccion: str):
     promedio = sum(precios_validos) / len(precios_validos)
     return {"promedio_bs": round(promedio, 2), "anuncios_validos": len(precios_validos)}
 
+# ---------------- AJUSTE: USD -> Otras monedas con Yahoo Finance (fallback a open.er-api) ----------------
 def obtener_tasa(base: str, destino: str):
+    base = base.upper()
+    destino = destino.upper()
+    if base == destino:
+        return 1.0
+
+    def yf_usd_to(code: str):
+        """Retorna USD->code desde Yahoo Finance como Decimal, o None si falla."""
+        try:
+            if code == "USD":
+                return Decimal(1)
+            sym = f"USD{code}=X"
+            url = "https://query1.finance.yahoo.com/v7/finance/quote"
+            r = requests.get(url, params={"symbols": sym}, timeout=10)
+            r.raise_for_status()
+            res = r.json().get("quoteResponse", {}).get("result", [])
+            px = res[0].get("regularMarketPrice") if res else None
+            return Decimal(str(px)) if px else None
+        except Exception:
+            return None
+
+    # Casos directos con USD como base o destino
+    if base == "USD":
+        r = yf_usd_to(destino)
+        if r:
+            return float(r)
+
+    if destino == "USD":
+        r = yf_usd_to(base)
+        if r:
+            return float(Decimal(1) / r)
+
+    # Cruce vía USD: base->USD->destino = (1 / (USD->base)) * (USD->destino)
+    r_base = yf_usd_to(base)
+    r_dest = yf_usd_to(destino)
+    if r_base and r_dest:
+        return float(r_dest / r_base)
+
+    # Fallback (tu fuente anterior)
     try:
         url = f"https://open.er-api.com/v6/latest/{base}"
         r = requests.get(url, timeout=10)
         r.raise_for_status()
         data = r.json()
         return data['rates'].get(destino)
-    except Exception as e:
-        print(f"Error API open.er-api.com: {e}")
+    except Exception:
         return None
 
+# --------------------------------- ENDPOINTS (SIN CAMBIOS) ---------------------------------
 @app.get("/convertir_bob")
 def convertir_bob(monto_bob: float = Query(1000, description="Monto en bolivianos a convertir")):
     resultado_promedio = obtener_promedio("BUY")
@@ -140,7 +183,6 @@ def convertir_bob(monto_bob: float = Query(1000, description="Monto en boliviano
     }
 
 # --------- NUEVOS ENDPOINTS ABAJO (todos con BUY) ---------
-
 @app.get("/convertir_bob_moneda")
 def convertir_bob_moneda(moneda: str = Query(...), monto_bob: float = Query(1000)):
     moneda = moneda.upper()
@@ -176,7 +218,7 @@ def cambio_a_bob(moneda: str = Query(...), monto: float = Query(1)):
             "input": f"{monto} USD",
             "output": f"{round(monto_bob, 2)} BOB",
             "tasa_usd_bob": tc_usd_bob,
-            "resultado": round(monto_bob, 2),  # <-- agrega aquí
+            "resultado": round(monto_bob, 2),
             "timestamp": datetime.now().isoformat()
         }
     else:
@@ -190,7 +232,7 @@ def cambio_a_bob(moneda: str = Query(...), monto: float = Query(1)):
             "output": f"{round(monto_bob, 2)} BOB",
             "tasa_usd_bob": tc_usd_bob,
             f"tasa_{moneda.lower()}_usd": tasa,
-            "resultado": round(monto_bob, 2),  # <-- y aquí
+            "resultado": round(monto_bob, 2),
             "timestamp": datetime.now().isoformat()
         }
 
