@@ -65,14 +65,14 @@ class FiatRateManager:
     
     def _init_rates(self):
         self.adjustment_factors = {
-            "COP": Decimal("0.992"),  # 2% de ajuste para COP
-            "ARS": Decimal("1.01"),  # 5% de ajuste para ARS
-            "CLP": Decimal("1.01"),
-            "BRL": Decimal("1.005"),
-            "PEN": Decimal("1.01"),
-            "PYG": Decimal("1.01"),
-            "MXN": Decimal("1.005"),
-            "CNY": Decimal("1.0")
+            "COP": Decimal("0.991"),  # 2% de ajuste para COP
+            "ARS": Decimal("1.61"),  # 5% de ajuste para ARS
+            "CLP": Decimal("1.71"),
+            "BRL": Decimal("1.055"),
+            "PEN": Decimal("1.51"),
+            "PYG": Decimal("1.51"),
+            "MXN": Decimal("1.055"),
+            "CNY": Decimal("1.5")
         }
     
     def get_adjusted_rate(self, currency: str) -> Optional[Decimal]:
