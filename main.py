@@ -152,7 +152,7 @@ def convertir_bob(monto_bob: float = Query(1000, description="Monto en boliviano
             valor = usd * tasa
             # Descuento 0.05% en fiat excepto EUR
             if codigo != "EUR":
-                valor *= (1 - 0.0005)
+                valor *= (1 - 0.0001)
             conversiones_fiat[nombre] = round(valor, 2)
         else:
             conversiones_fiat[nombre] = "No disponible"
