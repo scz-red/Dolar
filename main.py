@@ -6,8 +6,8 @@ import time
 
 app = FastAPI()
 
-# ================== CONFIG (UNA SOLA LÍNEA PARA EL DESCUENTO) ==================
-DESCUENTO_FIAT = 0.0010  # 0.10% de descuento a todas las fiat, excepto USD y EUR (ajusta aquí)
+# ================== CONFIG (una sola línea para el descuento) ==================
+DESCUENTO_FIAT = 0.0010  # 0.10% a todas las FIAT excepto USD y EUR
 
 # CORS público
 app.add_middleware(
@@ -153,10 +153,10 @@ def convertir_bob(monto_bob: float = Query(1000, description="Monto en boliviano
         tasa = rates_usd.get(codigo)
         if tasa:
             valor = usd * tasa
-            # ===== APLICA DESCUENTO EN UNA SOLA LÍNEA (excepto USD y EUR) =====
             if codigo not in ("USD", "EUR"):
                 valor *= (1 - DESCUENTO_FIAT)
-            conversiones_fiat[nombre] = round(valor, 2)
+            # COP sin decimales; resto 2 decimales
+            conversiones_fiat[nombre] = round(valor, 0) if codigo == "COP" else round(valor, 2)
         else:
             conversiones_fiat[nombre] = "No disponible"
 
@@ -210,15 +210,17 @@ def convertir_bob_moneda(moneda: str = Query(...), monto_bob: float = Query(1000
         if not tasa:
             return {"error": f"No se pudo obtener la tasa USD->{moneda}"}
         valor = usd * tasa
-        # ===== APLICA DESCUENTO EN UNA SOLA LÍNEA (excepto USD y EUR) =====
         if moneda not in ("USD", "EUR"):
             valor *= (1 - DESCUENTO_FIAT)
+
+    # Redondeo especial para COP
+    valor_redondeado = round(valor, 0) if moneda == "COP" else round(valor, 2)
 
     ts = datetime.now().isoformat()
     return {
         "input": f"{monto_bob} BOB",
-        "output": f"{round(valor, 2)} {moneda}",
-        "resultado": round(valor, 2),
+        "output": f"{valor_redondeado} {moneda}",
+        "resultado": valor_redondeado,
         "tc_bob_usd": tc_bob_usd,
         "timestamp": ts
     }
@@ -277,10 +279,10 @@ def cambio_bolivianos():
         tasa_usd_cod = rates_usd.get(cod)
         if tasa_usd_cod:
             valor = tc_usd_bob * tasa_usd_cod
-            # ===== APLICA DESCUENTO EN UNA SOLA LÍNEA (excepto USD y EUR) =====
             if cod not in ("USD", "EUR"):
                 valor *= (1 - DESCUENTO_FIAT)
-            cotizaciones[cod] = round(valor, 2)
+            # COP sin decimales; resto 2 decimales
+            cotizaciones[cod] = round(valor, 0) if cod == "COP" else round(valor, 2)
         else:
             cotizaciones[cod] = "No disponible"
 
