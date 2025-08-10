@@ -209,7 +209,7 @@ def convertir_bob_moneda(moneda: str = Query(...), monto_bob: float = Query(1000
         valor = usd * tasa
         # Descuento 0.05% en fiat excepto EUR
         if moneda != "EUR":
-            valor *= (1 - 0.0009)
+            valor *= (1 - 0.0001)
 
     ts = datetime.now().isoformat()
     return {
