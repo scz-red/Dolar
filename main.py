@@ -276,7 +276,7 @@ def cambio_bolivianos():
             valor = tc_usd_bob * tasa_usd_cod
             # Descuento 0.05% en fiat excepto EUR
             if cod != "EUR":
-                valor *= (1 - 0.0005)
+                valor *= (1 - 0.0009)
             cotizaciones[cod] = round(valor, 2)
         else:
             cotizaciones[cod] = "No disponible"
