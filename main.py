@@ -5,16 +5,14 @@ from datetime import datetime, timedelta
 from decimal import Decimal, getcontext, ROUND_HALF_UP
 import os
 
-# Configuración de precisión decimal
+# --- Precisión alta ---
 getcontext().prec = 28
-RATE_Q = Decimal("0.0001")
+RATE_Q = Decimal("0.0001")                 # 4 decimales en TASA
+FX_ADJ = Decimal(os.getenv("FX_ADJ", "0.9931"))  # -0.5% por defecto (0.995). Cambia por ENV si quieres.
 
-# Ajuste global (resta %) en monedas FIAT excepto USD y EUR
-FX_ADJ_FIAT = Decimal(os.getenv("FX_ADJ_FIAT", "0.995"))  # 0.995 = -0.5%
+app = FastAPI(title="API Paralelo", version="1.3")
 
-app = FastAPI(title="API Paralelo", version="1.3.2")
-
-# Configuración CORS
+# CORS para cualquier frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -34,12 +32,12 @@ CRYPTO_MAP = {
     "TRUMP": "trumpcoin"
 }
 
-# Caché
+# --- Caché simple en RAM ---
 cache_binance = {"BUY": (None, None)}
-cache_rates = {}
+cache_rates = {}  # key: "BASE-DEST" -> {"rate": float, "ts": datetime}
 CACHE_EXP = timedelta(seconds=60)
 
-# ----------- BINANCE P2P -----------
+# ------------------- Binance P2P (NO TOCAR) -------------------
 def obtener_promedio(direccion: str):
     now = datetime.now()
     valor, ts = cache_binance.get(direccion, (None, None))
@@ -84,27 +82,24 @@ def obtener_promedio(direccion: str):
     cache_binance[direccion] = (result, now)
     return result
 
-# ----------- AJUSTE GLOBAL MENOS USD/EUR -----------
-def _ajuste_monedas(base: str, destino: str, rate: float) -> float:
-    base = base.upper()
-    destino = destino.upper()
-    r = Decimal(str(rate))
+# ------------------- FX (open.er-api) con ajuste -------------------
+def _ajusta_tasa(rate: float) -> float:
+    """Redondea la tasa a 4 decimales y aplica calibración anti-inflado."""
+    r = Decimal(str(rate)).quantize(RATE_Q, rounding=ROUND_HALF_UP)
+    r = (r * FX_ADJ).quantize(RATE_Q, rounding=ROUND_HALF_UP)
+    return float(r)
 
-    # Aplicar ajuste solo si ninguna de las dos es USD o EUR
-    if not (destino in ["USD", "EUR"] or base in ["USD", "EUR"] and destino in ["USD", "EUR"]):
-        r = (r * FX_ADJ_FIAT)
-
-    return float(r.quantize(RATE_Q, rounding=ROUND_HALF_UP))
-
-# ----------- API OPEN.ER-API -----------
 def obtener_tasa(base: str, destino: str):
+    """Tasa base->destino desde open.er-api + redondeo 4d + calibración (-0.5% por defecto)."""
     base = base.upper()
     destino = destino.upper()
     key = f"{base}-{destino}"
+
     now = datetime.now()
     entry = cache_rates.get(key)
     if entry and (now - entry['ts']) < CACHE_EXP:
         return entry['rate']
+
     try:
         url = f"https://open.er-api.com/v6/latest/{base}"
         r = requests.get(url, timeout=10)
@@ -112,7 +107,7 @@ def obtener_tasa(base: str, destino: str):
         data = r.json()
         raw = data['rates'].get(destino)
         if raw:
-            rate = _ajuste_monedas(base, destino, raw)
+            rate = _ajusta_tasa(raw)
             cache_rates[key] = {"rate": rate, "ts": now}
             return rate
         return None
@@ -120,8 +115,7 @@ def obtener_tasa(base: str, destino: str):
         print(f"Error API open.er-api.com: {e}")
         return None
 
-# ----------- ENDPOINTS -----------
-
+# ------------------- ENDPOINTS -------------------
 @app.get("/convertir_bob")
 def convertir_bob(monto_bob: float = Query(1000, description="Monto en bolivianos a convertir")):
     resultado_promedio = obtener_promedio("BUY")
@@ -149,20 +143,22 @@ def convertir_bob(monto_bob: float = Query(1000, description="Monto en boliviano
 
     conversiones_fiat = {}
     for codigo, nombre in monedas.items():
-        tasa = obtener_tasa("USD", codigo)
+        tasa = obtener_tasa("USD", codigo)  # USD -> codigo (ajustada)
         if tasa:
             valor = usd * tasa
             conversiones_fiat[nombre] = round(valor, 2)
         else:
             conversiones_fiat[nombre] = "No disponible"
 
+    # Cripto (CoinGecko) con User-Agent para evitar bloqueos
     cripto_ids = ",".join(CRYPTO_MAP.values())
     try:
-        url = f"https://api.coingecko.com/api/v3/simple/price?ids={cripto_ids}&vs_currencies=usd"
-        r = requests.get(url, timeout=10)
+        url = "https://api.coingecko.com/api/v3/simple/price"
+        headers = {"User-Agent": "paralelo-bob/1.0 (+contacto)"}
+        r = requests.get(url, params={"ids": cripto_ids, "vs_currencies": "usd"}, headers=headers, timeout=15)
         r.raise_for_status()
         precios_criptos = r.json()
-    except Exception as e:
+    except Exception:
         precios_criptos = {}
 
     conversiones_cripto = {}
@@ -183,5 +179,77 @@ def convertir_bob(monto_bob: float = Query(1000, description="Monto en boliviano
         "monto_usd": round(usd, 2),
         "conversiones_fiat": conversiones_fiat,
         "conversiones_cripto": conversiones_cripto,
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.get("/convertir_bob_moneda")
+def convertir_bob_moneda(moneda: str = Query(...), monto_bob: float = Query(1000)):
+    moneda = moneda.upper()
+    resultado_promedio = obtener_promedio("BUY")
+    if "error" in resultado_promedio:
+        return {"error": resultado_promedio["error"]}
+    tc_bob_usd = resultado_promedio.get("promedio_bs")
+    usd = monto_bob / tc_bob_usd
+    if moneda == "USD":
+        valor = usd
+    else:
+        tasa = obtener_tasa("USD", moneda)
+        if not tasa:
+            return {"error": f"No se pudo obtener la tasa USD->{moneda}"}
+        valor = usd * tasa
+    return {
+        "input": f"{monto_bob} BOB",
+        "output": f"{round(valor, 2)} {moneda}",
+        "tc_bob_usd": tc_bob_usd,
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.get("/cambio_a_bob")
+def cambio_a_bob(moneda: str = Query(...), monto: float = Query(1)):
+    moneda = moneda.upper()
+    resultado_promedio = obtener_promedio("BUY")
+    if "error" in resultado_promedio:
+        return {"error": resultado_promedio["error"]}
+    tc_usd_bob = resultado_promedio.get("promedio_bs")
+    if moneda == "USD":
+        monto_bob = monto * tc_usd_bob
+        return {
+            "input": f"{monto} USD",
+            "resultado": round(monto_bob, 2),
+            "tasa_usd_bob": tc_usd_bob,
+            "timestamp": datetime.now().isoformat()
+        }
+    else:
+        tasa = obtener_tasa(moneda, "USD")  # moneda -> USD (ajustada)
+        if not tasa:
+            return {"error": f"No se pudo obtener la tasa {moneda}->USD"}
+        monto_usd = monto * tasa
+        monto_bob = monto_usd * tc_usd_bob
+        return {
+            "input": f"{monto} {moneda}",
+            "resultado": round(monto_bob, 2),
+            "tasa_usd_bob": tc_usd_bob,
+            f"tasa_{moneda.lower()}_usd": tasa,
+            "timestamp": datetime.now().isoformat()
+        }
+
+@app.get("/cambio_bolivianos")
+def cambio_bolivianos():
+    monedas = ["USD", "EUR", "COP", "ARS", "CLP", "BRL", "PEN", "CNY", "PYG", "MXN"]
+    resultado_promedio = obtener_promedio("BUY")
+    if "error" in resultado_promedio:
+        return {"error": resultado_promedio["error"]}
+    tc_usd_bob = resultado_promedio.get("promedio_bs")
+    cotizaciones = {"USD": round(tc_usd_bob, 2)}
+    for cod in monedas:
+        if cod == "USD":
+            continue
+        tasa = obtener_tasa(cod, "USD")  # cod -> USD (ajustada)
+        if tasa:
+            cotizaciones[cod] = round(tc_usd_bob * tasa, 2)  # BOB por 1 unidad de 'cod'
+        else:
+            cotizaciones[cod] = "No disponible"
+    return {
+        "cotizaciones_bolivianos": cotizaciones,
         "timestamp": datetime.now().isoformat()
     }
