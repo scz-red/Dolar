@@ -6,7 +6,7 @@ import time
 
 app = FastAPI()
 
-# CORS público, compatible con cualquier frontend
+# CORS público
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -70,10 +70,7 @@ def obtener_promedio(direccion: str):
         return cached
 
     url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
-    headers = {
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0"
-    }
+    headers = {"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
     data = {
         "asset": "USDT",
         "fiat": "BOB",
@@ -152,7 +149,11 @@ def convertir_bob(monto_bob: float = Query(1000, description="Monto en boliviano
             continue
         tasa = rates_usd.get(codigo)
         if tasa:
-            conversiones_fiat[nombre] = round(usd * tasa, 2)
+            valor = usd * tasa
+            # Descuento 0.05% en fiat excepto EUR
+            if codigo != "EUR":
+                valor *= (1 - 0.0005)
+            conversiones_fiat[nombre] = round(valor, 2)
         else:
             conversiones_fiat[nombre] = "No disponible"
 
@@ -206,6 +207,9 @@ def convertir_bob_moneda(moneda: str = Query(...), monto_bob: float = Query(1000
         if not tasa:
             return {"error": f"No se pudo obtener la tasa USD->{moneda}"}
         valor = usd * tasa
+        # Descuento 0.05% en fiat excepto EUR
+        if moneda != "EUR":
+            valor *= (1 - 0.0005)
 
     ts = datetime.now().isoformat()
     return {
@@ -269,7 +273,11 @@ def cambio_bolivianos():
             continue
         tasa_usd_cod = rates_usd.get(cod)
         if tasa_usd_cod:
-            cotizaciones[cod] = round(tc_usd_bob * tasa_usd_cod, 2)
+            valor = tc_usd_bob * tasa_usd_cod
+            # Descuento 0.05% en fiat excepto EUR
+            if cod != "EUR":
+                valor *= (1 - 0.0005)
+            cotizaciones[cod] = round(valor, 2)
         else:
             cotizaciones[cod] = "No disponible"
 
