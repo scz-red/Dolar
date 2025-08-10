@@ -10,7 +10,7 @@ getcontext().prec = 28
 RATE_Q = Decimal("0.0001")
 
 # Ajuste global (resta %) en monedas FIAT excepto USD y EUR
-FX_ADJ_FIAT = Decimal(os.getenv("FX_ADJ_FIAT", "0.9937"))  # 0.995 = -0.5%
+FX_ADJ_FIAT = Decimal(os.getenv("FX_ADJ_FIAT", "0.9935"))  # 0.995 = -0.5%
 
 app = FastAPI(title="API Paralelo", version="1.3.2")
 
