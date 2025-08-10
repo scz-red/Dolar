@@ -6,6 +6,9 @@ import time
 
 app = FastAPI()
 
+# ================== CONFIG (UNA SOLA LÍNEA PARA EL DESCUENTO) ==================
+DESCUENTO_FIAT = 0.0010  # 0.10% de descuento a todas las fiat, excepto USD y EUR (ajusta aquí)
+
 # CORS público
 app.add_middleware(
     CORSMiddleware,
@@ -150,9 +153,9 @@ def convertir_bob(monto_bob: float = Query(1000, description="Monto en boliviano
         tasa = rates_usd.get(codigo)
         if tasa:
             valor = usd * tasa
-            # Descuento 0.05% en fiat excepto EUR
-            if codigo != "EUR":
-                valor *= (1 - 0.0010)
+            # ===== APLICA DESCUENTO EN UNA SOLA LÍNEA (excepto USD y EUR) =====
+            if codigo not in ("USD", "EUR"):
+                valor *= (1 - DESCUENTO_FIAT)
             conversiones_fiat[nombre] = round(valor, 2)
         else:
             conversiones_fiat[nombre] = "No disponible"
@@ -207,9 +210,9 @@ def convertir_bob_moneda(moneda: str = Query(...), monto_bob: float = Query(1000
         if not tasa:
             return {"error": f"No se pudo obtener la tasa USD->{moneda}"}
         valor = usd * tasa
-        # Descuento 0.05% en fiat excepto EUR
-        if moneda != "EUR":
-            valor *= (1 - 0.0010)
+        # ===== APLICA DESCUENTO EN UNA SOLA LÍNEA (excepto USD y EUR) =====
+        if moneda not in ("USD", "EUR"):
+            valor *= (1 - DESCUENTO_FIAT)
 
     ts = datetime.now().isoformat()
     return {
@@ -274,9 +277,9 @@ def cambio_bolivianos():
         tasa_usd_cod = rates_usd.get(cod)
         if tasa_usd_cod:
             valor = tc_usd_bob * tasa_usd_cod
-            # Descuento 0.05% en fiat excepto EUR
-            if cod != "EUR":
-                valor *= (1 - 0.0009)
+            # ===== APLICA DESCUENTO EN UNA SOLA LÍNEA (excepto USD y EUR) =====
+            if cod not in ("USD", "EUR"):
+                valor *= (1 - DESCUENTO_FIAT)
             cotizaciones[cod] = round(valor, 2)
         else:
             cotizaciones[cod] = "No disponible"
