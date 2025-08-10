@@ -2,13 +2,14 @@ from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 import requests
 from datetime import datetime
+import time
 
 app = FastAPI()
 
 # CORS público, compatible con cualquier frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Permite todos los orígenes (API pública)
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -25,7 +26,49 @@ CRYPTO_MAP = {
     "TRUMP": "trumpcoin"
 }
 
+# ========= CACHÉ SIMPLE (TTL 60s) =========
+CACHE = {}
+TTL = 60
+
+def cache_get(key):
+    item = CACHE.get(key)
+    if not item:
+        return None
+    if time.time() - item["t"] <= TTL:
+        return item["v"]
+    return None
+
+def cache_set(key, value):
+    CACHE[key] = {"v": value, "t": time.time()}
+
+# ========= HELPERS DE TASAS =========
+def obtener_todas_tasas(base: str):
+    key = f"rates:{base.upper()}"
+    cached = cache_get(key)
+    if cached:
+        return cached
+    try:
+        url = f"https://open.er-api.com/v6/latest/{base}"
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        rates = r.json().get("rates", {})
+        cache_set(key, rates)
+        return rates
+    except Exception as e:
+        print(f"Error API open.er-api.com: {e}")
+        return {}
+
+def obtener_tasa(base: str, destino: str):
+    rates = obtener_todas_tasas(base)
+    return rates.get(destino)
+
+# ========= BINANCE P2P =========
 def obtener_promedio(direccion: str):
+    key = f"binance:{direccion}"
+    cached = cache_get(key)
+    if cached:
+        return cached
+
     url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
     headers = {
         "Content-Type": "application/json",
@@ -49,32 +92,33 @@ def obtener_promedio(direccion: str):
 
     precios_validos = []
     for anuncio in anuncios:
-        adv = anuncio.get("adv", {})
+        adv = anuncio.get("adv", {}) or {}
         min_trans = adv.get("minSingleTransAmount", 0)
-        if min_trans and float(min_trans) > 2000:
+        try:
+            if min_trans and float(min_trans) > 2000:
+                continue
+        except (TypeError, ValueError):
+            pass
+
+        try:
+            precio = float(adv.get("price", 0) or 0)
+        except (TypeError, ValueError):
             continue
-        precio = float(adv.get("price", 0))
-        precios_validos.append(precio)
-        if len(precios_validos) >= 5:
-            break
+
+        if precio > 0:
+            precios_validos.append(precio)
+            if len(precios_validos) >= 5:
+                break
 
     if not precios_validos:
         return {"error": "No hay suficientes anuncios válidos."}
 
     promedio = sum(precios_validos) / len(precios_validos)
-    return {"promedio_bs": round(promedio, 2), "anuncios_validos": len(precios_validos)}
+    result = {"promedio_bs": round(promedio, 2), "anuncios_validos": len(precios_validos)}
+    cache_set(key, result)
+    return result
 
-def obtener_tasa(base: str, destino: str):
-    try:
-        url = f"https://open.er-api.com/v6/latest/{base}"
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-        return data['rates'].get(destino)
-    except Exception as e:
-        print(f"Error API open.er-api.com: {e}")
-        return None
-
+# ========= ENDPOINTS =========
 @app.get("/convertir_bob")
 def convertir_bob(monto_bob: float = Query(1000, description="Monto en bolivianos a convertir")):
     resultado_promedio = obtener_promedio("BUY")
@@ -100,12 +144,15 @@ def convertir_bob(monto_bob: float = Query(1000, description="Monto en boliviano
         "CNY": "Yuan chino",
     }
 
+    rates_usd = obtener_todas_tasas("USD")
     conversiones_fiat = {}
     for codigo, nombre in monedas.items():
-        tasa = obtener_tasa("USD", codigo)
+        if codigo == "USD":
+            conversiones_fiat[nombre] = round(usd, 2)
+            continue
+        tasa = rates_usd.get(codigo)
         if tasa:
-            valor = usd * tasa
-            conversiones_fiat[nombre] = round(valor, 2)
+            conversiones_fiat[nombre] = round(usd * tasa, 2)
         else:
             conversiones_fiat[nombre] = "No disponible"
 
@@ -115,7 +162,7 @@ def convertir_bob(monto_bob: float = Query(1000, description="Monto en boliviano
         r = requests.get(url, timeout=10)
         r.raise_for_status()
         precios_criptos = r.json()
-    except Exception as e:
+    except Exception:
         precios_criptos = {}
 
     conversiones_cripto = {}
@@ -125,21 +172,22 @@ def convertir_bob(monto_bob: float = Query(1000, description="Monto en boliviano
         else:
             precio = precios_criptos.get(cripto_id, {}).get("usd")
             if precio:
-                valor = usd / precio
-                conversiones_cripto[cripto] = round(valor, 6)
+                conversiones_cripto[cripto] = round(usd / precio, 6)
             else:
                 conversiones_cripto[cripto] = "No disponible"
 
+    ts = datetime.now().isoformat()
     return {
         "monto_bob": monto_bob,
         "tc_bob_usd": tc_bob_usd,
         "monto_usd": round(usd, 2),
         "conversiones_fiat": conversiones_fiat,
         "conversiones_cripto": conversiones_cripto,
-        "timestamp": datetime.now().isoformat()
+        "timestamp": ts,
+        "input": f"{monto_bob} BOB",
+        "output": "ver conversiones",
+        "resultado": {"USD": round(usd, 2), "FIAT": conversiones_fiat, "CRYPTO": conversiones_cripto}
     }
-
-# --------- NUEVOS ENDPOINTS ABAJO (todos con BUY) ---------
 
 @app.get("/convertir_bob_moneda")
 def convertir_bob_moneda(moneda: str = Query(...), monto_bob: float = Query(1000)):
@@ -149,18 +197,23 @@ def convertir_bob_moneda(moneda: str = Query(...), monto_bob: float = Query(1000
         return {"error": resultado_promedio["error"]}
     tc_bob_usd = resultado_promedio.get("promedio_bs")
     usd = monto_bob / tc_bob_usd
+
     if moneda == "USD":
         valor = usd
     else:
-        tasa = obtener_tasa("USD", moneda)
+        rates_usd = obtener_todas_tasas("USD")
+        tasa = rates_usd.get(moneda)
         if not tasa:
             return {"error": f"No se pudo obtener la tasa USD->{moneda}"}
         valor = usd * tasa
+
+    ts = datetime.now().isoformat()
     return {
         "input": f"{monto_bob} BOB",
         "output": f"{round(valor, 2)} {moneda}",
+        "resultado": round(valor, 2),
         "tc_bob_usd": tc_bob_usd,
-        "timestamp": datetime.now().isoformat()
+        "timestamp": ts
     }
 
 @app.get("/cambio_a_bob")
@@ -169,18 +222,22 @@ def cambio_a_bob(moneda: str = Query(...), monto: float = Query(1)):
     resultado_promedio = obtener_promedio("BUY")
     if "error" in resultado_promedio:
         return {"error": resultado_promedio["error"]}
+
     tc_usd_bob = resultado_promedio.get("promedio_bs")
+    ts = datetime.now().isoformat()
+
     if moneda == "USD":
         monto_bob = monto * tc_usd_bob
         return {
             "input": f"{monto} USD",
             "output": f"{round(monto_bob, 2)} BOB",
+            "resultado": round(monto_bob, 2),
             "tasa_usd_bob": tc_usd_bob,
-            "resultado": round(monto_bob, 2),  # <-- agrega aquí
-            "timestamp": datetime.now().isoformat()
+            "timestamp": ts
         }
     else:
-        tasa = obtener_tasa(moneda, "USD")
+        rates = obtener_todas_tasas(moneda)
+        tasa = rates.get("USD")
         if not tasa:
             return {"error": f"No se pudo obtener la tasa {moneda}->USD"}
         monto_usd = monto * tasa
@@ -188,10 +245,10 @@ def cambio_a_bob(moneda: str = Query(...), monto: float = Query(1)):
         return {
             "input": f"{monto} {moneda}",
             "output": f"{round(monto_bob, 2)} BOB",
+            "resultado": round(monto_bob, 2),
             "tasa_usd_bob": tc_usd_bob,
             f"tasa_{moneda.lower()}_usd": tasa,
-            "resultado": round(monto_bob, 2),  # <-- y aquí
-            "timestamp": datetime.now().isoformat()
+            "timestamp": ts
         }
 
 @app.get("/cambio_bolivianos")
@@ -204,16 +261,23 @@ def cambio_bolivianos():
     if "error" in resultado_promedio:
         return {"error": resultado_promedio["error"]}
     tc_usd_bob = resultado_promedio.get("promedio_bs")
+
+    rates_usd = obtener_todas_tasas("USD")
     cotizaciones = {"USD": round(tc_usd_bob, 2)}
     for cod in monedas:
         if cod == "USD":
             continue
-        tasa = obtener_tasa(cod, "USD")
-        if tasa:
-            cotizaciones[cod] = round(tc_usd_bob * tasa, 2)
+        tasa_usd_cod = rates_usd.get(cod)
+        if tasa_usd_cod:
+            cotizaciones[cod] = round(tc_usd_bob * tasa_usd_cod, 2)
         else:
             cotizaciones[cod] = "No disponible"
+
+    ts = datetime.now().isoformat()
     return {
         "cotizaciones": cotizaciones,
-        "timestamp": datetime.now().isoformat()
+        "input": "1 unidad de cada moneda",
+        "output": "BOB por unidad",
+        "resultado": cotizaciones,
+        "timestamp": ts
     }
