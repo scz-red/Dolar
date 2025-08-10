@@ -8,7 +8,7 @@ import os
 # --- Precisión alta ---
 getcontext().prec = 28
 RATE_Q = Decimal("0.0001")                 # 4 decimales en TASA
-FX_ADJ = Decimal(os.getenv("FX_ADJ", "0.89"))  # -0.5% por defecto (0.995). Cambia por ENV si quieres.
+FX_ADJ = Decimal(os.getenv("FX_ADJ", "0.85"))  # -0.5% por defecto (0.995). Cambia por ENV si quieres.
 
 app = FastAPI(title="API Paralelo", version="1.3")
 
