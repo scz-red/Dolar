@@ -7,7 +7,7 @@ import time
 app = FastAPI()
 
 # ================== CONFIG (una sola línea para el descuento) ==================
-DESCUENTO_FIAT = 0.0003  # 0.10% a todas las FIAT excepto USD y EUR
+DESCUENTO_FIAT = 0.0000  # 0.10% a todas las FIAT excepto USD y EUR
 
 # CORS público
 app.add_middleware(
