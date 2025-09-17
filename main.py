@@ -1,18 +1,22 @@
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from datetime import datetime
 import time
+from typing import Any, Dict, Optional
 
 app = FastAPI()
 
-# ================== CONFIG (una sola línea para el descuento) ==================
-DESCUENTO_FIAT = 0.0000  # 0.10% a todas las FIAT excepto USD y EUR
+# ================== CONFIG ==================
+# Descuento aplicado a todas las FIAT excepto USD y EUR (0.10% = 0.001)
+DESCUENTO_FIAT = 0.0000
 
-# CORS público
+# CORS (puedes restringir a tus dominios cuando esté en prod)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # p.ej.: ["https://paralelo.scz.red", "https://api.paralelo.scz.red"]
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -20,20 +24,38 @@ app.add_middleware(
 
 CRYPTO_MAP = {
     "USDT": "tether",
-    "BTC": "bitcoin",
-    "ETH": "ethereum",
+    "BTC":  "bitcoin",
+    "ETH":  "ethereum",
     "USDC": "usd-coin",
     "DOGE": "dogecoin",
-    "SOL": "solana",
+    "SOL":  "solana",
     "PEPE": "pepe",
-    "TRUMP": "trumpcoin"
+    "TRUMP":"trumpcoin",
 }
 
-# ========= CACHÉ SIMPLE (TTL 60s) =========
-CACHE = {}
-TTL = 60
+# ================== HTTP CLIENT (reintentos/backoff + pooling) ==================
+def _build_session() -> requests.Session:
+    s = requests.Session()
+    retries = Retry(
+        total=3,                # hasta 3 intentos
+        backoff_factor=0.5,     # 0.5s, 1s, 2s...
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset(["GET", "POST"])
+    )
+    adapter = HTTPAdapter(max_retries=retries, pool_connections=20, pool_maxsize=50)
+    s.mount("https://", adapter)
+    s.mount("http://", adapter)
+    s.headers.update({"User-Agent": "paralelo-scz/1.0 (+https://paralelo.scz.red)"})
+    return s
 
-def cache_get(key):
+SESSION = _build_session()
+TIMEOUT = 10
+
+# ================== CACHÉ SIMPLE ==================
+CACHE: Dict[str, Dict[str, Any]] = {}
+TTL = 60  # segundos
+
+def cache_get(key: str) -> Optional[Any]:
     item = CACHE.get(key)
     if not item:
         return None
@@ -41,39 +63,49 @@ def cache_get(key):
         return item["v"]
     return None
 
-def cache_set(key, value):
+def cache_get_stale(key: str) -> Optional[Any]:
+    """Devuelve el último valor aun si está vencido (para fallback)."""
+    item = CACHE.get(key)
+    return item["v"] if item else None
+
+def cache_set(key: str, value: Any) -> None:
     CACHE[key] = {"v": value, "t": time.time()}
 
-# ========= HELPERS DE TASAS =========
-def obtener_todas_tasas(base: str):
+# ================== HELPERS DE TASAS ==================
+def obtener_todas_tasas(base: str) -> Dict[str, float]:
     key = f"rates:{base.upper()}"
     cached = cache_get(key)
     if cached:
         return cached
     try:
         url = f"https://open.er-api.com/v6/latest/{base}"
-        r = requests.get(url, timeout=10)
+        r = SESSION.get(url, timeout=TIMEOUT)
         r.raise_for_status()
-        rates = r.json().get("rates", {})
-        cache_set(key, rates)
-        return rates
+        rates = r.json().get("rates", {}) or {}
+        if rates:
+            cache_set(key, rates)
+            return rates
+        # si vino vacío, trata de usar stale
+        stale = cache_get_stale(key)
+        return stale or {}
     except Exception as e:
-        print(f"Error API open.er-api.com: {e}")
-        return {}
+        print(f"[open.er-api] {e}")
+        stale = cache_get_stale(key)
+        return stale or {}
 
-def obtener_tasa(base: str, destino: str):
+def obtener_tasa(base: str, destino: str) -> Optional[float]:
     rates = obtener_todas_tasas(base)
     return rates.get(destino)
 
-# ========= BINANCE P2P =========
-def obtener_promedio(direccion: str):
+# ================== BINANCE P2P ==================
+def obtener_promedio(direccion: str) -> Dict[str, Any]:
     key = f"binance:{direccion}"
     cached = cache_get(key)
     if cached:
         return cached
 
     url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
-    headers = {"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+    headers = {"Content-Type": "application/json"}
     data = {
         "asset": "USDT",
         "fiat": "BOB",
@@ -84,11 +116,14 @@ def obtener_promedio(direccion: str):
         "publisherType": None
     }
     try:
-        response = requests.post(url, headers=headers, json=data, timeout=10)
+        response = SESSION.post(url, headers=headers, json=data, timeout=TIMEOUT)
         response.raise_for_status()
-        anuncios = response.json().get("data", [])
+        anuncios = response.json().get("data", []) or []
     except Exception as e:
-        return {"error": f"Error al consultar Binance: {str(e)}"}
+        # Fallback: regresa valor stale si existe
+        print(f"[binance] {e}")
+        stale = cache_get_stale(key)
+        return stale or {"error": f"Error al consultar Binance: {str(e)}"}
 
     precios_validos = []
     for anuncio in anuncios:
@@ -111,14 +146,15 @@ def obtener_promedio(direccion: str):
                 break
 
     if not precios_validos:
-        return {"error": "No hay suficientes anuncios válidos."}
+        stale = cache_get_stale(key)
+        return stale or {"error": "No hay suficientes anuncios válidos."}
 
     promedio = sum(precios_validos) / len(precios_validos)
     result = {"promedio_bs": round(promedio, 2), "anuncios_validos": len(precios_validos)}
     cache_set(key, result)
     return result
 
-# ========= ENDPOINTS =========
+# ================== ENDPOINTS (sin cambios) ==================
 @app.get("/convertir_bob")
 def convertir_bob(monto_bob: float = Query(1000, description="Monto en bolivianos a convertir")):
     resultado_promedio = obtener_promedio("BUY")
@@ -155,7 +191,6 @@ def convertir_bob(monto_bob: float = Query(1000, description="Monto en boliviano
             valor = usd * tasa
             if codigo not in ("USD", "EUR"):
                 valor *= (1 - DESCUENTO_FIAT)
-            # COP sin decimales; resto 2 decimales
             conversiones_fiat[nombre] = round(valor, 0) if codigo == "COP" else round(valor, 2)
         else:
             conversiones_fiat[nombre] = "No disponible"
@@ -163,10 +198,11 @@ def convertir_bob(monto_bob: float = Query(1000, description="Monto en boliviano
     cripto_ids = ",".join(CRYPTO_MAP.values())
     try:
         url = f"https://api.coingecko.com/api/v3/simple/price?ids={cripto_ids}&vs_currencies=usd"
-        r = requests.get(url, timeout=10)
+        r = SESSION.get(url, timeout=TIMEOUT)
         r.raise_for_status()
         precios_criptos = r.json()
-    except Exception:
+    except Exception as e:
+        print(f"[coingecko] {e}")
         precios_criptos = {}
 
     conversiones_cripto = {}
@@ -213,9 +249,7 @@ def convertir_bob_moneda(moneda: str = Query(...), monto_bob: float = Query(1000
         if moneda not in ("USD", "EUR"):
             valor *= (1 - DESCUENTO_FIAT)
 
-    # Redondeo especial para COP
     valor_redondeado = round(valor, 0) if moneda == "COP" else round(valor, 2)
-
     ts = datetime.now().isoformat()
     return {
         "input": f"{monto_bob} BOB",
@@ -262,10 +296,7 @@ def cambio_a_bob(moneda: str = Query(...), monto: float = Query(1)):
 
 @app.get("/cambio_bolivianos")
 def cambio_bolivianos():
-    monedas = [
-        "USD", "EUR", "COP", "ARS", "CLP",
-        "BRL", "PEN", "CNY", "PYG", "MXN"
-    ]
+    monedas = ["USD", "EUR", "COP", "ARS", "CLP", "BRL", "PEN", "CNY", "PYG", "MXN"]
     resultado_promedio = obtener_promedio("BUY")
     if "error" in resultado_promedio:
         return {"error": resultado_promedio["error"]}
@@ -281,7 +312,6 @@ def cambio_bolivianos():
             valor = tc_usd_bob * tasa_usd_cod
             if cod not in ("USD", "EUR"):
                 valor *= (1 - DESCUENTO_FIAT)
-            # COP sin decimales; resto 2 decimales
             cotizaciones[cod] = round(valor, 0) if cod == "COP" else round(valor, 2)
         else:
             cotizaciones[cod] = "No disponible"
